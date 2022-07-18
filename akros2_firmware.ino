@@ -22,8 +22,7 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 
-//#include <akros_msgs/msg/mode.h>
-#include <std_msgs/msg/Int32.h> //TODO: remove once akros_msgs are used
+#include <akros2_msgs/msg/Mode.h>
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
 #include <geometry_msgs/msg/twist.h>
@@ -52,7 +51,7 @@ rcl_publisher_t    imu_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t mode_subscriber;
 
-std_msgs__msg__Int32     mode_msg;
+akros2_msgs__msg__Mode    mode_msg;
 nav_msgs__msg__Odometry   odom_msg;
 sensor_msgs__msg__Imu     imu_msg;
 geometry_msgs__msg__Twist twist_msg;
@@ -63,10 +62,6 @@ rcl_init_options_t init_options;
 rcl_allocator_t    allocator;
 rcl_node_t         node;
 rcl_timer_t        timer;
-
-unsigned long long time_offset = 0;
-unsigned long prev_cmd_time = 0;
-unsigned long prev_odom_update = 0;
 
 enum states
 {
@@ -105,6 +100,11 @@ Kinematics kinematics(
 
 Odometry odometry;
 IMU imu;
+
+unsigned long long time_offset = 0;
+unsigned long prev_cmd_time = 0;
+unsigned long prev_odom_update = 0;
+static bool e_stop = false;
 
 void setup()
 {
@@ -194,21 +194,23 @@ void twistCallback(const void * msgin)
 
 void modeCallback(const void * msgin)
 {
-  const std_msgs__msg__Int32 * msg = (const std_msgs__msg__Int32 *)msgin;
-  if (msg->data == 0)
+  const akros2_msgs__msg__Mode * msg = (const akros2_msgs__msg__Mode *)msgin;
+  if (msg->estop) // STOP
   {
-    setNeopixel(toCRGB(255, 0, 0)); //STOP
+    e_stop = true;
+    setNeopixel(toCRGB(255, 0, 0));
     fullStop();
   }
   else
   {
-    if (msg->data == 1)
+    e_stop = false;
+    if (msg->auto_t) // AUTO
     {
-      setNeopixel(toCRGB(0, 75, 255)); //AUTO
+      setNeopixel(toCRGB(0, 75, 255));
     }
-    else
+    else if(!msg->auto_t) // TELEOP
     {
-      setNeopixel(toCRGB(0, 255, 75)); //TELEOP
+      setNeopixel(toCRGB(0, 255, 75));
     }
   }
 }
@@ -280,6 +282,9 @@ bool createEntities()
   RCCHECK(rmw_uros_sync_session(10));
   calculateOffset();
 
+  // force all motors to brake
+  fullStop();
+
   return true;
 }
 
@@ -297,6 +302,9 @@ bool destroyEntities()
   rc += rcl_node_fini(&node);
   rc += rclc_support_fini(&support);
   rc += rcl_init_options_fini(&init_options);
+
+  // force all motors to brake
+  fullStop();
 
   if(rc != RCL_RET_OK)
   {
@@ -323,7 +331,7 @@ void fullStop()
 void moveBase()
 {
   // brake if there's no command received, or when it's only the first command sent
-  if(((millis() - prev_cmd_time) >= 200))
+  if(e_stop || ((millis() - prev_cmd_time) >= 200))
   {
     fullStop();
   }
@@ -341,10 +349,13 @@ void moveBase()
 
   // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
   // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
-  motor1_controller.spin(motor1_pid.compute(req_rpm.motor1, current_rpm1));
-  motor2_controller.spin(motor2_pid.compute(req_rpm.motor2, current_rpm2));
-  motor3_controller.spin(motor3_pid.compute(req_rpm.motor3, current_rpm3));
-  motor4_controller.spin(motor4_pid.compute(req_rpm.motor4, current_rpm4));
+  if(!e_stop)
+  {
+    motor1_controller.spin(motor1_pid.compute(req_rpm.motor1, current_rpm1));
+    motor2_controller.spin(motor2_pid.compute(req_rpm.motor2, current_rpm2));
+    motor3_controller.spin(motor3_pid.compute(req_rpm.motor3, current_rpm3));
+    motor4_controller.spin(motor4_pid.compute(req_rpm.motor4, current_rpm4));
+  }
 
   Kinematics::velocities current_vel = kinematics.getVelocities(
                                         current_rpm1,
