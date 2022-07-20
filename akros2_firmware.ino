@@ -26,7 +26,6 @@
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
 #include <geometry_msgs/msg/twist.h>
-#include <geometry_msgs/msg/vector3.h> //TODO: is this really needed?
 
 #include "akros2_base_config.h"
 #include "src/motor/motor.h"
@@ -250,7 +249,7 @@ bool createEntities()
   RCCHECK(rclc_subscription_init_default(
           &mode_subscriber,
           &node,
-          ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+          ROSIDL_GET_MSG_TYPE_SUPPORT(akros2_msgs, msg, Mode),
           "mode"));
 
   // create timer
