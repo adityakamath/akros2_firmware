@@ -4,9 +4,9 @@ Firmware and libraries for the akros2 robot, based on [linorobot2_hardware](http
 * Option for native ethernet transport (UDP4)
 * Option to set ROS_DOMAIN_ID
 * Neopixel status and mode indicator
-* Compiling/uploading using Arduino IDE and [micro_ros_arduino][https://github.com/micro-ROS/micro_ros_arduino] instead of PlatformIO
+* Compiling/uploading using Arduino IDE and [modified micro_ros_arduino libraries][https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic] instead of PlatformIO
 * Calibration sketch moved to a separate branch [akros2_calibration](https://github.com/adityakamath/akros2_firmware/tree/akros2_calibration)
-* Mode subscriber with custom message type (TODO)
+* Mode subscriber with custom [akros2_msgs/Mode](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs) type
 * Fuse encoder and IMU measurements (TODO)
 * Add parameters (TODO)
 
