@@ -222,21 +222,21 @@ bool createEntities()
   RCCHECK(rcl_init_options_init(&init_options, allocator));
   RCCHECK(rcl_init_options_set_domain_id(&init_options, (size_t)ROS_DOMAIN_ID));
   RCCHECK(rclc_support_init_with_options(&support, 0, NULL, &init_options, &allocator));
-  RCCHECK(rclc_node_init_default(&node, "linorobot_base_node", "", &support));
+  RCCHECK(rclc_node_init_default(&node, "akros2_base_node", "akros2_base", &support));
 
   // create odometry publisher
   RCCHECK(rclc_publisher_init_default(
           &odom_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
-          "odom/unfiltered"));
+          "odom"));
 
   // create IMU publisher
   RCCHECK(rclc_publisher_init_default(
           &imu_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-          "imu/data"));
+          "imu"));
 
   // create twist command subscriber
   RCCHECK(rclc_subscription_init_default(
