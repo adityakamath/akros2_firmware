@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "akros2_base_config.h"
+#include "akros2_calib_config.h"
 #include "src/motor/motor.h"
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
@@ -213,10 +213,10 @@ void printSummary(bool print_cpr)
       cpr[i] = encoders[i]->read() / total_rev;
     }
 
-    rpm[0] = (encoders[0]->read()*6*MOTOR_POWER_RATIO)/COUNTS_PER_REV1;
-    rpm[1] = (encoders[1]->read()*6*MOTOR_POWER_RATIO)/COUNTS_PER_REV2;
-    rpm[2] = (encoders[2]->read()*6*MOTOR_POWER_RATIO)/COUNTS_PER_REV3;
-    rpm[3] = (encoders[3]->read()*6*MOTOR_POWER_RATIO)/COUNTS_PER_REV4;
+    rpm[0] = (encoders[0]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV1;
+    rpm[1] = (encoders[1]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV2;
+    rpm[2] = (encoders[2]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV3;
+    rpm[3] = (encoders[3]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV4;
 
     cprc[0] = COUNTS_PER_REV1;
     cprc[1] = COUNTS_PER_REV2;
@@ -240,6 +240,7 @@ void printSummary(bool print_cpr)
     Serial.println("");
 
     Serial.println("\r\n====================COUNTS_PER_REVx====================");
+    Serial.println("These readings will not be accurate if the MOTOR_MAX_RPM is not set correctly in config.h")
     for(int k=0; k<total_motors; k++)
     {
       Serial.print(labels[k]);

@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef AKROS2_BASE_CONFIG_H
-#define AKROS2_BASE_CONFIG_H
+#ifndef AKROS2_CALIB_CONFIG_H
+#define AKROS2_CALIB_CONFIG_H
 
 //ROS
 #define ROS_DOMAIN_ID 2
