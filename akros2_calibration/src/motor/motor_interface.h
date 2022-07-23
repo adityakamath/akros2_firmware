@@ -12,28 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef PID_H
-#define PID_H
+#ifndef MOTOR_INTERFACE
+#define MOTOR_INTERFACE
 
-#include "Arduino.h"
-
-class PID
+class MotorInterface
 {
-    public:
-        PID(float min_val, float max_val, float kp, float ki, float kd);
-        double compute(float setpoint, float measured_value);
-        void updateConstants(float kp, float ki, float kd);
-        void resetAll();
+    bool invert_;
+    protected:
+        virtual void forward(int pwm) = 0;
+        virtual void reverse(int pwm) = 0;
 
-    private:
-        float min_val_;
-        float max_val_;
-        float kp_;
-        float ki_;
-        float kd_;
-        double integral_;
-        double derivative_;
-        double prev_error_;
+    public:
+        MotorInterface(int invert):
+            invert_(invert)
+        {
+        }
+
+        virtual void brake() = 0;
+        void spin(int pwm)
+        {
+            if(invert_)
+                pwm *= -1;
+
+            if(pwm > 0)
+                forward(pwm);
+            else if(pwm < 0)
+                reverse(pwm);
+            else
+                brake();
+        }
 };
 
 #endif

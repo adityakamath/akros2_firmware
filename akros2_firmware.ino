@@ -103,7 +103,7 @@ IMU imu;
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
-static bool e_stop = false;
+static bool e_stop = true;
 
 void setup()
 {
@@ -133,7 +133,9 @@ void setup()
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
 
-  setNeopixel(toCRGB(75, 75, 255));
+  e_stop = false;
+  setNeopixel(toCRGB(0, 255, 255)); // STARTUP: Cyan
+  FastLED.show();
 }
 
 void loop() {
@@ -164,16 +166,7 @@ void loop() {
       break;
   }
 
-  if (state == AGENT_CONNECTED)
-  {
-    digitalWrite(LED_PIN, HIGH);
-    setNeopixel(toCRGB(175, 75, 255));
-  }
-  else
-  {
-    digitalWrite(LED_PIN, LOW);
-    setNeopixel(toCRGB(75, 75, 255));
-  }
+  state == AGENT_CONNECTED ? digitalWrite(LED_PIN, HIGH) : digitalWrite(LED_PIN, LOW);
 }
 
 void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
@@ -181,6 +174,8 @@ void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
   (void) last_call_time;
   if (timer != NULL)
   {
+    updateMode();
+    FastLED.show();
     moveBase();
     publishData();
   }
@@ -189,29 +184,12 @@ void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
 void twistCallback(const void * msgin)
 {
   digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+  prev_cmd_time = millis();
 }
 
 void modeCallback(const void * msgin)
 {
-  const akros2_msgs__msg__Mode * msg = (const akros2_msgs__msg__Mode *)msgin;
-  if (msg->estop) // STOP
-  {
-    e_stop = true;
-    setNeopixel(toCRGB(255, 0, 0));
-    fullStop();
-  }
-  else
-  {
-    e_stop = false;
-    if (msg->auto_t) // AUTO
-    {
-      setNeopixel(toCRGB(0, 75, 255));
-    }
-    else if(!msg->auto_t) // TELEOP
-    {
-      setNeopixel(toCRGB(0, 255, 75));
-    }
-  }
+  digitalWrite(LED_PIN, !digitalRead(LED_PIN));
 }
 
 bool createEntities()
@@ -222,7 +200,7 @@ bool createEntities()
   RCCHECK(rcl_init_options_init(&init_options, allocator));
   RCCHECK(rcl_init_options_set_domain_id(&init_options, (size_t)ROS_DOMAIN_ID));
   RCCHECK(rclc_support_init_with_options(&support, 0, NULL, &init_options, &allocator));
-  RCCHECK(rclc_node_init_default(&node, "akros2_base_node", "akros2_base", &support));
+  RCCHECK(rclc_node_init_default(&node, NODE, NAMESPACE, &support));
 
   // create odometry publisher
   RCCHECK(rclc_publisher_init_default(
@@ -281,9 +259,6 @@ bool createEntities()
   RCCHECK(rmw_uros_sync_session(10));
   calculateOffset();
 
-  // force all motors to brake
-  fullStop();
-
   return true;
 }
 
@@ -302,17 +277,11 @@ bool destroyEntities()
   rc += rclc_support_fini(&support);
   rc += rcl_init_options_fini(&init_options);
 
-  // force all motors to brake
   fullStop();
+  setNeopixel(toCRGB(0, 255, 255)); // DISCONNECTED: Cyan
+  FastLED.show();
 
-  if(rc != RCL_RET_OK)
-  {
-    return false;
-  }
-  else
-  {
-    return true;
-  }
+  return (rc != RCL_RET_OK) ? false : true;
 }
 
 void fullStop()
@@ -327,33 +296,65 @@ void fullStop()
   motor4_controller.brake();
 }
 
-void moveBase()
+void updateMode()
 {
-  // brake if there's no command received, or when it's only the first command sent
-  if(e_stop || ((millis() - prev_cmd_time) >= 200))
+  if (mode_msg.estop)
   {
+    setNeopixel(toCRGB(255, 0, 0)); // STOP: Red
     fullStop();
   }
-  // get the required rpm for each motor based on required velocities, and base used
-  Kinematics::rpm req_rpm = kinematics.getRPM(
-                              twist_msg.linear.x,
-                              twist_msg.linear.y,
-                              twist_msg.angular.z);
-
-  // get the current speed of each motor
-  float current_rpm1 = motor1_encoder.getRPM();
-  float current_rpm2 = motor2_encoder.getRPM();
-  float current_rpm3 = motor3_encoder.getRPM();
-  float current_rpm4 = motor4_encoder.getRPM();
-
-  // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
-  // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
-  if(!e_stop)
+  else
   {
+    mode_msg.auto_t ? setNeopixel(toCRGB(0, 55, 255)) : setNeopixel(toCRGB(0, 255, 55)); // AUTO: Blue, TELEOP: Green
+  }
+  FastLED.show();
+}
+
+void moveBase()
+{
+  //TODO:
+  // brake if there's no command received, or when it's only the first command sent
+  //if((millis() - prev_cmd_time) >= 200)
+  //{
+    //twist_msg.linear.x = 0.0;
+    //twist_msg.linear.y = 0.0;
+    //twist_msg.angular.z = 0.0;
+
+    //digitalWrite(LED_PIN, HIGH);
+  //}
+
+  float current_rpm1, current_rpm2, current_rpm3, current_rpm4;
+  if( twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0 )
+  {
+    // get the required rpm for each motor based on required velocities, and base used
+    Kinematics::rpm req_rpm = kinematics.getRPM(
+                                  twist_msg.linear.x,
+                                  twist_msg.linear.y,
+                                  twist_msg.angular.z);
+
+    // get the current speed of each motor
+    current_rpm1 = motor1_encoder.getRPM();
+    current_rpm2 = motor2_encoder.getRPM();
+    current_rpm3 = motor3_encoder.getRPM();
+    current_rpm4 = motor4_encoder.getRPM();
+
+    // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
+    // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
     motor1_controller.spin(motor1_pid.compute(req_rpm.motor1, current_rpm1));
     motor2_controller.spin(motor2_pid.compute(req_rpm.motor2, current_rpm2));
     motor3_controller.spin(motor3_pid.compute(req_rpm.motor3, current_rpm3));
     motor4_controller.spin(motor4_pid.compute(req_rpm.motor4, current_rpm4));
+  }
+  else
+  {
+    fullStop();
+
+    current_rpm1 = current_rpm2 = current_rpm3 = current_rpm4 = 0;
+
+    motor1_pid.resetAll();
+    motor2_pid.resetAll();
+    motor3_pid.resetAll();
+    motor4_pid.resetAll();
   }
 
   Kinematics::velocities current_vel = kinematics.getVelocities(
@@ -440,13 +441,13 @@ void getTeensyMAC(uint8_t *mac)
   }
 }
 
-CRGB toCRGB(uint8_t Rdata, uint8_t Gdata, uint8_t Bdata)
+CRGB toCRGB(uint8_t Cdata, uint8_t Mdata, uint8_t Ydata)
 {
   CRGB output(0, 0, 0);
 
-  output.r = Rdata;
-  output.g = Gdata;
-  output.b = Bdata;
+  output.r = 255-Cdata;
+  output.g = 255-Mdata;
+  output.b = 255-Ydata;
 
   return output;
 }
@@ -455,7 +456,6 @@ void setNeopixel(CRGB in_led)
 {
   for(int i=0; i<NEOPIXEL_COUNT; i++)
   {
-    neopixel[i] = toCRGB(in_led.r, in_led.g, in_led.b);
+    neopixel[i] = in_led;
   }
-  FastLED.show();
 }

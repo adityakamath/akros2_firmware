@@ -166,7 +166,7 @@ public:
 		unsigned long current_time = micros();
 		unsigned long dt = current_time - prev_update_time_;
 
-		//convert the time from microseconds to minutes
+		//convert the time from milliseconds to minutes
 		double dtm = (double)dt / 60000000;
 		double delta_ticks = encoder_ticks - prev_encoder_ticks_;
 

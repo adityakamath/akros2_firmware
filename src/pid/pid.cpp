@@ -46,6 +46,13 @@ double PID::compute(float setpoint, float measured_value)
     return constrain(pid, min_val_, max_val_);
 }
 
+void PID::resetAll()
+{
+    prev_error_ = 0;
+    integral_   = 0;
+    derivative_ = 0;
+}
+
 void PID::updateConstants(float kp, float ki, float kd)
 {
     kp_ = kp;

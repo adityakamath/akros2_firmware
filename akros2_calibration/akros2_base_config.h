@@ -18,8 +18,6 @@
 
 //ROS
 #define ROS_DOMAIN_ID 2
-#define NODE "akros_base_node"
-#define NAMESPACE ""
 
 //TRANSPORTS: uncomment the transport you're using
 #define TRANSPORT_SERIAL                    // Serial transport over USB
@@ -44,9 +42,9 @@
 //#define USE_MPU9250_IMU
 
 //PID
-#define K_P 0.75                            // P constant //TODO:
-#define K_I 0.50                            // I constant //TODO:
-#define K_D 0.50                            // D constant //TODO:
+#define K_P 0.6                             // P constant //TODO
+#define K_I 0.8                             // I constant //TODO
+#define K_D 0.5                             // D constant //TODO
 #define UPDATE_RATE 20                      // Control timer timeout in ms (20ms = 50Hz)
 
 
@@ -68,8 +66,8 @@
 #define COUNTS_PER_REV2 296                 // wheel2 encoder's no of ticks per rev
 #define COUNTS_PER_REV3 296                 // wheel3 encoder's no of ticks per rev
 #define COUNTS_PER_REV4 296                 // wheel4 encoder's no of ticks per rev
-#define WHEEL_DIAMETER 0.0800               // wheel diameter in meters
-#define LR_WHEELS_DISTANCE 0.210            // distance between left and right wheels
+#define WHEEL_DIAMETER 0.0800               // wheel's diameter in meters
+#define LR_WHEELS_DISTANCE 0.220            // distance between left and right wheels
 #define PWM_BITS 15                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
 
