@@ -103,7 +103,6 @@ IMU imu;
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
-static bool e_stop = true;
 
 void setup()
 {
@@ -133,7 +132,6 @@ void setup()
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
 
-  e_stop = false;
   setNeopixel(toCRGB(0, 255, 255)); // STARTUP: Cyan
   FastLED.show();
 }

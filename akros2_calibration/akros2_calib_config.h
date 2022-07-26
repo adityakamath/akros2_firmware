@@ -16,18 +16,10 @@
 #ifndef AKROS2_CALIB_CONFIG_H
 #define AKROS2_CALIB_CONFIG_H
 
-//ROS
-#define ROS_DOMAIN_ID 2
-
-//TRANSPORTS: uncomment the transport you're using
-#define TRANSPORT_SERIAL                    // Serial transport over USB
-//#define TRANSPORT_ETHERNET                  // UDP4 over Ethernet
-
 //DRIVE: uncomment the base you're building
 #define AKROS2_BASE MECANUM                 // Mecanum drive robot
 //#define AKROS2_BASE DIFFERENTIAL_DRIVE      // 2WD and Tracked robot w/ 2 motors
 //#define AKROS2_BASE SKID_STEER              // 4WD robot
-
 
 //MOTOR DRIVER: uncomment the motor driver you're using
 #define USE_BTS7960_MOTOR_DRIVER            // BTS7970 Motor Driver
@@ -46,7 +38,6 @@
 #define K_I 0.8                             // I constant //TODO
 #define K_D 0.5                             // D constant //TODO
 #define UPDATE_RATE 20                      // Control timer timeout in ms (20ms = 50Hz)
-
 
 //ROBOT ORIENTATION
 /*
@@ -70,12 +61,6 @@
 #define LR_WHEELS_DISTANCE 0.220            // distance between left and right wheels
 #define PWM_BITS 15                         // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency
-
-//LED + NEOPIXEL CONFIG
-#define LED_PIN 13
-#define NEOPIXEL_PIN 24
-#define NEOPIXEL_COUNT 6
-#define NEOPIXEL_BRIGHTNESS 50
 
 //INVERT ENCODER COUNTS
 #define MOTOR1_ENCODER_INV false

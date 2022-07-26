@@ -4,12 +4,10 @@ Firmware and libraries for the akros2 robot, based on [linorobot2_hardware](http
 * Option for native ethernet transport (UDP4).
 * Option to set ROS_DOMAIN_ID.
 * Neopixel status and mode indicator using [FastLED](https://github.com/FastLED/FastLED).
-* Compiling/uploading using Arduino IDE and [modified micro_ros_arduino libraries][https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic] instead of PlatformIO.
+* Compiling/uploading using Arduino IDE and [modified micro_ros_arduino libraries](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic) instead of PlatformIO.
 * Calibration sketch updated and moved to a separate directory [akros2_calibration](https://github.com/adityakamath/akros2_firmware/tree/akros2_galactic/akros2_calibration/).
-    * Added sequence to rotate wheels by hand to measure encoder counts per revolution (CPR), to be updated in the config.
-    * Added sequence to calculate max RPM of the motors using the measured CPR, to be updated in the config.
-    * Updated reporting to show calculated CPR vs the CPR defined in the config. Also shows the deviance of the calculated CPR from it's config value.
-    * Added Neopixel/FastLED setup to indicate different commands, and to test LED colors.
+    * Reports max RPMs using pre-defined CPRs, instead of the other way around.
+    * Also reports the calculated CPRs and its deviation from the pre-defined CPRs.
 * Mode subscriber with custom [akros2_msgs/Mode](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs) type.
 * Fuse encoder and IMU measurements (TODO).
 * Add parameters (TODO).

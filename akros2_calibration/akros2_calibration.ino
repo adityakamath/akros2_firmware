@@ -20,10 +20,10 @@
 #include "src/encoder/encoder.h"
 #include "src/kinematics/kinematics.h"
 
-#include <FastLED.h>
-
-#define SAMPLE_TIME 20 //seconds
-#define MOTOR_POWER_RATIO MOTOR_OPERATING_VOLTAGE/MOTOR_POWER_MAX_VOLTAGE
+#define SAMPLE_TIME 10 //seconds
+#define LED_PIN 13
+#define MEASURED_VOLTAGE constrain(MOTOR_POWER_MEASURED_VOLTAGE, 0, MOTOR_OPERATING_VOLTAGE)
+#define MOTOR_POWER_RATIO MEASURED_VOLTAGE/MOTOR_OPERATING_VOLTAGE
 
 Encoder motor1_encoder(MOTOR1_ENCODER_A, MOTOR1_ENCODER_B, COUNTS_PER_REV1, MOTOR1_ENCODER_INV);
 Encoder motor2_encoder(MOTOR2_ENCODER_A, MOTOR2_ENCODER_B, COUNTS_PER_REV2, MOTOR2_ENCODER_INV);
@@ -45,8 +45,6 @@ Kinematics kinematics(
     LR_WHEELS_DISTANCE
 );
 
-CRGB neopixel[NEOPIXEL_COUNT];
-
 int total_motors = 4;
 Motor *motors[4] = {&motor1_controller, &motor2_controller, &motor3_controller, &motor4_controller};
 Encoder *encoders[4] = {&motor1_encoder, &motor2_encoder, &motor3_encoder, &motor4_encoder};
@@ -54,26 +52,23 @@ String labels[4] = {"FRONT LEFT  - M1: ", "FRONT RIGHT - M2: ", "REAR  LEFT  - M
 
 void setup()
 {
-  FastLED.addLeds<NEOPIXEL, NEOPIXEL_PIN>(neopixel, NEOPIXEL_COUNT);
-
   Serial.begin(9600);
   while (!Serial){}
 
   Serial.println("Please ensure that the robot is ELEVATED and there are NO OBSTRUCTIONS to the wheels.");
   Serial.println("");
-  Serial.println("1: VERIFY MOTOR DIRECTIONS: Type 'spin' + enter");
-  Serial.println("2: SET ENCODER CPR: Type 'count' + enter. Motor directions must already be set in config.h");
-  Serial.println("3: SET MOTOR RPM: Type 'sample' + enter. Encoder CPRs must already be set in config.h");
-  Serial.println("Press enter to clear.");
+  Serial.println("1: SPIN: Type 'spin' + enter");
+  Serial.println("\t Used to check motor directions.");
+  Serial.println("\t All motors must rotate in the forward direction.");
+  Serial.println("\t Update config.h if any motor is rotating in the opposite direction");
+  Serial.println("2: SAMPLE: Type 'sample' + enter. Encoder CPRs must already be set in config.h");
+  Serial.println("\t Used to calculate max RPMs of each motor");
+  Serial.println("\t Motor directions and Encoder CPRs must be set correctly in config.h");
+  Serial.println("\t Update config.h with the average max RPM value and run again");
 
   Serial.println("");
-  Serial.println("Each step is dependent on the previous step");
-  Serial.println("After each step, config.h must be updated if needed");
-  Serial.println("(Only) If config.h is updated, the sketch must be compiled/uploaded again");
+  Serial.println("If config.h is updated, the sketch must be compiled/uploaded again");
   Serial.println("\r\n=======================================================");
-
-  setNeopixel(toCRGB(0, 255, 255)); // STARTUP: Cyan
-  FastLED.show();
 }
 
 void loop()
@@ -90,64 +85,38 @@ void loop()
       {
         cmd = "";
         Serial.println("\r\n");
-        setNeopixel(toCRGB(0, 255, 55)); // Green
-        FastLED.show();
-        sampleMotors(0, 0);
-      }
-      else if(character == '\n' and cmd.equals("count\n"))
-      {
-        cmd = "";
-        Serial.println("\r\n");
-        setNeopixel(toCRGB(255, 0, 0)); // Red
-        FastLED.show();
-        sampleMotors(1, 1);
+        sampleMotors(0);
       }
       else if(character == '\n' and cmd.equals("sample\n"))
       {
         cmd = "";
         Serial.println("\r\n");
-        setNeopixel(toCRGB(0, 55, 255)); // Blue
-        FastLED.show();
-        sampleMotors(0, 1);
+        sampleMotors(1);
       }
       else if(character == '\n')
       {
         Serial.println("");
-        setNeopixel(toCRGB(0, 255, 255)); // Cyan
-        FastLED.show();
         cmd = "";
       }
   }
 }
 
-void sampleMotors(bool count_cpr, bool show_summary)
+void sampleMotors(bool show_summary)
 {
   if(Kinematics::AKROS2_BASE == Kinematics::DIFFERENTIAL_DRIVE)
   {
     total_motors = 2;
   }
 
-  if(count_cpr)
-  {
-    Serial.println("When prompted, rotate the specified motor by hand for exactly one revolution");
-    Serial.println("One revolution can be measured by sticking some tape to the motor, and aligning it to a fixed reference");
-    Serial.println("");
-    Serial.println("Once one revolution is complete, stop and wait for the next prompt in SAMPLE_TIME.");
-    Serial.println("\t SAMPLE_TIME = 20 seconds");
-  }
-  else
-  {
-    Serial.println("The motors will spin one by one at PWM_MAX for SAMPLE_TIME");
-    Serial.print("\t PWM_MAX: ");
-    Serial.print(PWM_MAX);
-    Serial.print("\t SAMPLE_TIME: ");
-    Serial.print(SAMPLE_TIME);
-    Serial.println(" seconds");
-  }
+  Serial.print("The motors will spin one by one at PWM_MAX (");
+  Serial.print((int)PWM_MAX);
+  Serial.print(") for ");
+  Serial.print(SAMPLE_TIME);
+  Serial.println(" seconds.");
 
   for(int i=0; i<total_motors; i++)
   {
-    count_cpr? Serial.print("ROTATE ") : Serial.print("SPINNING ");
+    Serial.print("SPINNING ");
     Serial.print(labels[i]);
 
     unsigned long start_time = micros();
@@ -169,131 +138,87 @@ void sampleMotors(bool count_cpr, bool show_summary)
         Serial.print(".");
       }
 
-      if(!count_cpr)
-      {
-        motors[i]->spin(PWM_MAX);
-      }
+      motors[i]->spin(PWM_MAX);
     }
   }
   if(show_summary)
   {
-    printSummary(count_cpr);
+    printSummary();
   }
+
 }
 
-void printSummary(bool print_cpr)
+void printSummary()
 {
-  if(print_cpr)
+  float cpr[4];
+  float rpm[4];
+  float cprc[4];
+
+  cprc[0] = COUNTS_PER_REV1;
+  cprc[1] = COUNTS_PER_REV2;
+  cprc[2] = COUNTS_PER_REV3;
+  cprc[3] = COUNTS_PER_REV4;
+
+  for(int i=0; i<total_motors; i++)
   {
-    Serial.println("\r\n====================COUNTS_PER_REVx=====================");
-    for(int i=0; i<total_motors; i+=2)
-    {
-      Serial.print(labels[i]);
-      Serial.print(encoders[i]->read());
-      Serial.print("\t");
-      Serial.print(labels[i+1]);
-      Serial.println(encoders[i+1]->read());
-    }
-
-    Serial.println("Update COUNTS_PER_REVx in config.h");
-    Serial.println("Build and run the calibration sketch again");
+    rpm[i] = (encoders[i]->read()*(60.0/SAMPLE_TIME))/(cprc[i]*MOTOR_POWER_RATIO);
   }
-  else
+
+  float average_max_rpm = (rpm[0]+rpm[1]+rpm[2]+rpm[3])/total_motors;
+  float total_rev = average_max_rpm*MOTOR_POWER_RATIO*(SAMPLE_TIME/60.0);
+
+  for(int j=0; j<total_motors; j++)
   {
-    float measured_voltage = constrain(MOTOR_POWER_MEASURED_VOLTAGE, 0, MOTOR_OPERATING_VOLTAGE);
-    float scaled_max_rpm = ((measured_voltage / MOTOR_OPERATING_VOLTAGE) * MOTOR_MAX_RPM);
-    float total_rev = scaled_max_rpm * (SAMPLE_TIME / 60.0);
-
-    long long int cpr[4];
-    long long int rpm[4];
-    long long int cprc[4];
-
-    for(int i=0; i<total_motors; i++)
-    {
-      cpr[i] = encoders[i]->read() / total_rev;
-    }
-
-    rpm[0] = (encoders[0]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV1;
-    rpm[1] = (encoders[1]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV2;
-    rpm[2] = (encoders[2]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV3;
-    rpm[3] = (encoders[3]->read()*3*MOTOR_POWER_RATIO)/COUNTS_PER_REV4;
-
-    cprc[0] = COUNTS_PER_REV1;
-    cprc[1] = COUNTS_PER_REV2;
-    cprc[2] = COUNTS_PER_REV3;
-    cprc[3] = COUNTS_PER_REV4;
-
-    Serial.println("\r\n====================MOTOR_MAX_RPM=====================");
-    for(int j=0; j<total_motors; j+=2)
-    {
-      Serial.print(labels[j]);
-      Serial.print(rpm[j]);
-      Serial.print("\t");
-      Serial.print(labels[j+1]);
-      Serial.println(rpm[j+1]);
-    }
-
-    Serial.println("Average MOTOR_MAX_RPM: ");
-    Serial.println((rpm[0]+rpm[1]+rpm[2]+rpm[3])/total_motors);
-
-    Serial.println("Update MOTOR_MAX_RPM in config.h and build/run calibration sketch again");
-    Serial.println("");
-
-    Serial.println("\r\n====================COUNTS_PER_REVx====================");
-    Serial.println("These readings will not be accurate if the MOTOR_MAX_RPM is not set correctly in config.h")
-    for(int k=0; k<total_motors; k++)
-    {
-      Serial.print(labels[k]);
-      Serial.print(" Calculated: ");
-      Serial.print(cpr[k]);
-      Serial.print(" Config: ");
-      Serial.print(cprc[k]);
-      Serial.print(" Deviation: ");
-      Serial.print((cprc[k] - cpr[k])* 100/(float)cprc[k]);
-      Serial.println("%");
-    }
-
-    Serial.println("Calculated values must match config.h values (COUNTS_PER_REVx) with +/- 2% acceptable deviation");
-    Serial.println("");
-
-    Serial.println("\r\n====================MAX_VELOCITIES====================");
-    float max_rpm = kinematics.getMaxRPM();
-
-    Kinematics::velocities max_linear = kinematics.getVelocities(max_rpm, max_rpm, max_rpm, max_rpm);
-    Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm,-max_rpm, max_rpm);
-
-    Serial.print("Linear Velocity X: +- ");
-    Serial.print(max_linear.linear_x);
-    Serial.println(" m/s");
-
-    Serial.print("Linear Velocity Y: +- ");
-    Serial.print(max_linear.linear_y);
-    Serial.println(" m/s");
-
-    Serial.print("Angular Velocity Z: +- ");
-    Serial.print(max_angular.angular_z);
-    Serial.println(" rad/s");
-
-    Serial.println("Update config.h if necessary. If changed, build/run calibration sketch again");
-    Serial.println("");
+    cpr[j] = encoders[j]->read()/total_rev;
   }
-}
 
-CRGB toCRGB(uint8_t Cdata, uint8_t Mdata, uint8_t Ydata)
-{
-  CRGB output(0, 0, 0);
-
-  output.r = 255-Cdata;
-  output.g = 255-Mdata;
-  output.b = 255-Ydata;
-
-  return output;
-}
-
-void setNeopixel(CRGB in_led)
-{
-  for(int i=0; i<NEOPIXEL_COUNT; i++)
+  Serial.println("\r\n====================MOTOR_MAX_RPM=====================");
+  for(int j=0; j<total_motors; j+=2)
   {
-    neopixel[i] = in_led;
+    Serial.print(labels[j]);
+    Serial.print(rpm[j]);
+    Serial.print("\t");
+    Serial.print(labels[j+1]);
+    Serial.println(rpm[j+1]);
   }
+
+  Serial.print("Average MOTOR_MAX_RPM: ");
+  Serial.println(average_max_rpm);
+
+  Serial.println("Update MOTOR_MAX_RPM in config.h and build/run calibration sketch again");
+
+  Serial.println("\r\n====================COUNTS_PER_REVx====================");
+  for(int k=0; k<total_motors; k++)
+  {
+    Serial.print(labels[k]);
+    Serial.print(" Calculated: +- ");
+    Serial.print(cpr[k]);
+    Serial.print(" Config: ");
+    Serial.print(cprc[k]);
+    Serial.print(" Deviation: ~ ");
+    Serial.print((cprc[k] - cpr[k])*100/cprc[k]);
+    Serial.println("%");
+  }
+
+  Serial.println("Calculated values must match config.h values (COUNTS_PER_REVx) with +/- 5% acceptable deviation");
+
+  Serial.println("\r\n====================MAX_VELOCITIES====================");
+  float max_rpm = kinematics.getMaxRPM();
+
+  Kinematics::velocities max_linear = kinematics.getVelocities(max_rpm, max_rpm, max_rpm, max_rpm);
+  Kinematics::velocities max_angular = kinematics.getVelocities(-max_rpm, max_rpm,-max_rpm, max_rpm);
+
+  Serial.print("Linear Velocity X: +- ");
+  Serial.print(max_linear.linear_x);
+  Serial.println(" m/s");
+
+  Serial.print("Linear Velocity Y: +- ");
+  Serial.print(max_linear.linear_y);
+  Serial.println(" m/s");
+
+  Serial.print("Angular Velocity Z: +- ");
+  Serial.print(max_angular.angular_z);
+  Serial.println(" rad/s");
+
+  Serial.println("Update config.h if necessary. If changed, build/run calibration sketch again");
 }
