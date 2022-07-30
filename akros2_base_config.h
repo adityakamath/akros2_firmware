@@ -18,17 +18,17 @@
 
 //ROS
 #define ROS_DOMAIN_ID 2
-#define NODE "akros_base_node"
-#define NAMESPACE ""
+#define NODE "base_node"
+#define NAMESPACE "akros2"
 
 //TRANSPORTS: uncomment the transport you're using
 #define TRANSPORT_SERIAL                    // Serial transport over USB
 //#define TRANSPORT_ETHERNET                  // UDP4 over Ethernet
 
 //DRIVE: uncomment the base you're building
-#define AKROS2_BASE MECANUM                 // Mecanum drive robot
-//#define AKROS2_BASE DIFFERENTIAL_DRIVE      // 2WD and Tracked robot w/ 2 motors
-//#define AKROS2_BASE SKID_STEER              // 4WD robot
+#define LINO_BASE MECANUM                   // Mecanum drive robot
+//#define LINO_BASE DIFFERENTIAL_DRIVE        // 2WD and Tracked robot w/ 2 motors
+//#define LINO_BASE SKID_STEER                // 4WD robot
 
 
 //MOTOR DRIVER: uncomment the motor driver you're using
@@ -38,10 +38,10 @@
 //#define USE_ESC_MOTOR_DRIVER                // Motor ESC for brushless motors
 
 //IMU: uncomment the IMU you're using
-#define USE_GY85_IMU
+#define USE_MPU9250_IMU
+//#define USE_GY85_IMU
 //#define USE_MPU6050_IMU
 //#define USE_MPU9150_IMU
-//#define USE_MPU9250_IMU
 
 //PID
 #define K_P 0.75                            // P constant //TODO:
@@ -59,7 +59,7 @@
 */
 
 //ROBOT SPECS
-#define MOTOR_MAX_RPM 177                   // motor's max RPM
+#define MOTOR_MAX_RPM 176                   // motor's max RPM
 #define MAX_RPM_RATIO 1                     // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO //TODO
 #define MOTOR_OPERATING_VOLTAGE 12          // motor's operating voltage (used to calculate max RPM)
 #define MOTOR_POWER_MAX_VOLTAGE 9           // max voltage of the motor's power source (used to calculate max RPM)

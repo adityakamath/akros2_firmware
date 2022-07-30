@@ -48,7 +48,7 @@
 */
 
 //ROBOT SPECS
-#define MOTOR_MAX_RPM 177                   // motor's max RPM
+#define MOTOR_MAX_RPM 176                   // motor's max RPM
 #define MAX_RPM_RATIO 1                     // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO //TODO
 #define MOTOR_OPERATING_VOLTAGE 12          // motor's operating voltage (used to calculate max RPM)
 #define MOTOR_POWER_MAX_VOLTAGE 9           // max voltage of the motor's power source (used to calculate max RPM)

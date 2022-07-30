@@ -14,11 +14,11 @@
 // limitations under the License.
 
 #include "akros2_calib_config.h"
-#include "src/motor/motor.h"
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
 #include "src/encoder/encoder.h"
 #include "src/kinematics/kinematics.h"
+#include "src/motor/motor.h"
 
 #define SAMPLE_TIME 10 //seconds
 #define LED_PIN 13

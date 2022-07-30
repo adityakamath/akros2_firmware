@@ -21,21 +21,25 @@
 #include <rcl/error_handling.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
+#include <rclc_parameter/rclc_parameter.h>
 
-#include <akros2_msgs/msg/Mode.h>
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
 #include <geometry_msgs/msg/twist.h>
 
+#include <akros2_msgs/msg/Mode.h>
+#include <akros2_msgs/msg/Velocities.h>
+#include <akros2_msgs/msg/Feedback.h>
+
 #include "akros2_base_config.h"
+#define ENCODER_USE_INTERRUPTS
+#define ENCODER_OPTIMIZE_INTERRUPTS
+#include "src/encoder/encoder.h"
 #include "src/motor/motor.h"
 #include "src/kinematics/kinematics.h"
 #include "src/pid/pid.h"
 #include "src/odometry/odometry.h"
 #include "src/imu/imu.h"
-#define ENCODER_USE_INTERRUPTS
-#define ENCODER_OPTIMIZE_INTERRUPTS
-#include "src/encoder/encoder.h"
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){errorLoop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
@@ -47,20 +51,26 @@
 
 rcl_publisher_t    odom_publisher;
 rcl_publisher_t    imu_publisher;
+rcl_publisher_t    feedback_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t mode_subscriber;
 
-akros2_msgs__msg__Mode    mode_msg;
-nav_msgs__msg__Odometry   odom_msg;
-sensor_msgs__msg__Imu     imu_msg;
-geometry_msgs__msg__Twist twist_msg;
+akros2_msgs__msg__Mode       mode_msg;
+akros2_msgs__msg__Velocities cur_rpm_msg;
+akros2_msgs__msg__Velocities req_rpm_msg;
+akros2_msgs__msg__Feedback   feedback_msg;
+nav_msgs__msg__Odometry      odom_msg;
+sensor_msgs__msg__Imu        imu_msg;
+geometry_msgs__msg__Twist    twist_msg;
 
-rclc_executor_t    executor;
-rclc_support_t     support;
-rcl_init_options_t init_options;
-rcl_allocator_t    allocator;
-rcl_node_t         node;
-rcl_timer_t        timer;
+rclc_executor_t          executor;
+rclc_support_t           support;
+rcl_init_options_t       init_options;
+rcl_allocator_t          allocator;
+rcl_node_t               node;
+rcl_timer_t              timer;
+rclc_parameter_server_t  param_server;
+rclc_parameter_options_t param_options;
 
 enum states
 {
@@ -88,7 +98,7 @@ PID motor3_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 PID motor4_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
 
 Kinematics kinematics(
-  Kinematics::AKROS2_BASE,
+  Kinematics::LINO_BASE,
   MOTOR_MAX_RPM,
   MAX_RPM_RATIO,
   MOTOR_OPERATING_VOLTAGE,
@@ -99,6 +109,14 @@ Kinematics kinematics(
 
 Odometry odometry;
 IMU imu;
+
+const char * kp_name = "motor_kp";
+const char * ki_name = "motor_ki";
+const char * kd_name = "motor_kd";
+
+double kp, ki, kd;
+float cur_rpm1, cur_rpm2, cur_rpm3, cur_rpm4;
+float req_rpm1, req_rpm2, req_rpm3, req_rpm4;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -112,7 +130,7 @@ void setup()
   bool imu_ok = imu.init();
   if(!imu_ok)
   {
-    //while(1)
+    while(1)
     {
       flashLED(3);
     }
@@ -164,7 +182,7 @@ void loop() {
       break;
   }
 
-  state == AGENT_CONNECTED ? digitalWrite(LED_PIN, HIGH) : digitalWrite(LED_PIN, LOW);
+  state == AGENT_CONNECTED ? digitalWrite(LED_PIN, LOW) : digitalWrite(LED_PIN, HIGH);
 }
 
 void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
@@ -181,13 +199,22 @@ void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
 
 void twistCallback(const void * msgin)
 {
-  digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   prev_cmd_time = millis();
 }
 
-void modeCallback(const void * msgin)
+void modeCallback(const void * msgin){}
+
+void paramCallback(Parameter * param)
 {
-  digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+  // Get parameter values from parameter server
+  RCSOFTCHECK(rclc_parameter_get_double(&param_server, kp_name, &kp));
+  RCSOFTCHECK(rclc_parameter_get_double(&param_server, ki_name, &ki));
+  RCSOFTCHECK(rclc_parameter_get_double(&param_server, kd_name, &kd));
+
+  motor1_pid.updateConstants(kp, ki, kd);
+  motor2_pid.updateConstants(kp, ki, kd);
+  motor3_pid.updateConstants(kp, ki, kd);
+  motor4_pid.updateConstants(kp, ki, kd);
 }
 
 bool createEntities()
@@ -207,12 +234,19 @@ bool createEntities()
           ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
           "odom"));
 
-  // create IMU publisher
+  // create imu publisher
   RCCHECK(rclc_publisher_init_default(
           &imu_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
           "imu"));
+
+  // create pid control msg
+  RCCHECK(rclc_publisher_init_default(
+          &feedback_publisher,
+          &node,
+          ROSIDL_GET_MSG_TYPE_SUPPORT(akros2_msgs, msg, Feedback),
+          "feedback"));
 
   // create twist command subscriber
   RCCHECK(rclc_subscription_init_default(
@@ -236,9 +270,16 @@ bool createEntities()
           RCL_MS_TO_NS(timeout_ms),
           timerCallback));
 
+  // create parameter server
+  param_options = {.notify_changed_over_dds = true, .max_params = 3};
+  RCCHECK(rclc_parameter_server_init_with_option(
+          &param_server,
+          &node,
+          &param_options));
+
   // create executor
   executor = rclc_executor_get_zero_initialized_executor();
-  RCCHECK(rclc_executor_init(&executor, &support.context, 3, & allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, RCLC_PARAMETER_EXECUTOR_HANDLES_NUMBER + 3, & allocator));
   RCCHECK(rclc_executor_add_subscription(
           &executor,
           &twist_subscriber,
@@ -252,6 +293,20 @@ bool createEntities()
           &modeCallback,
           ON_NEW_DATA));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
+  RCCHECK(rclc_executor_add_parameter_server(
+          &executor,
+          &param_server,
+          paramCallback));
+
+  // Add parameters to the server
+  RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
+
+  // Set parameter default values
+  RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
+  RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
+  RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
 
   // synchronize time with the agent
   RCCHECK(rmw_uros_sync_session(10));
@@ -268,9 +323,12 @@ bool destroyEntities()
   rcl_ret_t rc = rclc_executor_fini(&executor);
   rc += rcl_publisher_fini(&odom_publisher, &node);
   rc += rcl_publisher_fini(&imu_publisher, &node);
+  rc += rcl_publisher_fini(&feedback_publisher, &node);
+  rc += rclc_executor_fini(&executor);
   rc += rcl_timer_fini(&timer);
   rc += rcl_subscription_fini(&twist_subscriber, &node);
   rc += rcl_subscription_fini(&mode_subscriber, &node);
+  rc += rclc_parameter_server_fini(&param_server, &node);
   rc += rcl_node_fini(&node);
   rc += rclc_support_fini(&support);
   rc += rcl_init_options_fini(&init_options);
@@ -292,6 +350,11 @@ void fullStop()
   motor2_controller.brake();
   motor3_controller.brake();
   motor4_controller.brake();
+
+  motor1_pid.resetAll();
+  motor2_pid.resetAll();
+  motor3_pid.resetAll();
+  motor4_pid.resetAll();
 }
 
 void updateMode()
@@ -320,8 +383,7 @@ void moveBase()
 
     //digitalWrite(LED_PIN, HIGH);
   //}
-
-  float current_rpm1, current_rpm2, current_rpm3, current_rpm4;
+  
   if( twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0 )
   {
     // get the required rpm for each motor based on required velocities, and base used
@@ -330,36 +392,35 @@ void moveBase()
                                   twist_msg.linear.y,
                                   twist_msg.angular.z);
 
-    // get the current speed of each motor
-    current_rpm1 = motor1_encoder.getRPM();
-    current_rpm2 = motor2_encoder.getRPM();
-    current_rpm3 = motor3_encoder.getRPM();
-    current_rpm4 = motor4_encoder.getRPM();
+    req_rpm1 = req_rpm.motor1;
+    req_rpm2 = req_rpm.motor2;
+    req_rpm3 = req_rpm.motor3;
+    req_rpm4 = req_rpm.motor4;
+
+    cur_rpm1 = motor1_encoder.getRPM();
+    cur_rpm2 = motor2_encoder.getRPM();
+    cur_rpm3 = motor3_encoder.getRPM();
+    cur_rpm4 = motor4_encoder.getRPM();
 
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
-    motor1_controller.spin(motor1_pid.compute(req_rpm.motor1, current_rpm1));
-    motor2_controller.spin(motor2_pid.compute(req_rpm.motor2, current_rpm2));
-    motor3_controller.spin(motor3_pid.compute(req_rpm.motor3, current_rpm3));
-    motor4_controller.spin(motor4_pid.compute(req_rpm.motor4, current_rpm4));
+    motor1_controller.spin(motor1_pid.compute(req_rpm1, cur_rpm1));
+    motor2_controller.spin(motor2_pid.compute(req_rpm2, cur_rpm2));
+    motor3_controller.spin(motor3_pid.compute(req_rpm3, cur_rpm3));
+    motor4_controller.spin(motor4_pid.compute(req_rpm4, cur_rpm4));
   }
   else
   {
     fullStop();
-
-    current_rpm1 = current_rpm2 = current_rpm3 = current_rpm4 = 0;
-
-    motor1_pid.resetAll();
-    motor2_pid.resetAll();
-    motor3_pid.resetAll();
-    motor4_pid.resetAll();
+    req_rpm1 = req_rpm2 = req_rpm3 = req_rpm4 = 0;
+    cur_rpm1 = cur_rpm2 = cur_rpm3 = cur_rpm4 = 0;
   }
 
   Kinematics::velocities current_vel = kinematics.getVelocities(
-                                        current_rpm1,
-                                        current_rpm2,
-                                        current_rpm3,
-                                        current_rpm4);
+                                        cur_rpm1,
+                                        cur_rpm2,
+                                        cur_rpm3,
+                                        cur_rpm4);
 
   unsigned long now = millis();
   float vel_dt = (now - prev_odom_update) / 1000.0;
@@ -373,19 +434,36 @@ void moveBase()
 
 void publishData()
 {
+  imu_msg  = imu.getData();
   odom_msg = odometry.getData();
-  imu_msg = imu.getData();
+
+  cur_rpm_msg.motor1 = cur_rpm1;
+  cur_rpm_msg.motor2 = cur_rpm2;
+  cur_rpm_msg.motor3 = cur_rpm3;
+  cur_rpm_msg.motor4 = cur_rpm4;
+
+  req_rpm_msg.motor1 = req_rpm1;
+  req_rpm_msg.motor2 = req_rpm2;
+  req_rpm_msg.motor3 = req_rpm3;
+  req_rpm_msg.motor4 = req_rpm4;
+
+  feedback_msg.current  = cur_rpm_msg;
+  feedback_msg.required = req_rpm_msg;
 
   struct timespec time_stamp = getTime();
 
+  imu_msg.header.stamp.sec = time_stamp.tv_sec;
+  imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  
   odom_msg.header.stamp.sec = time_stamp.tv_sec;
   odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 
-  imu_msg.header.stamp.sec = time_stamp.tv_sec;
-  imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  feedback_msg.header.stamp.sec = time_stamp.tv_sec;
+  feedback_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 
   RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
   RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
+  RCSOFTCHECK(rcl_publish(&feedback_publisher, &feedback_msg, NULL));
 }
 
 void calculateOffset()
