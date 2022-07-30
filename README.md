@@ -8,7 +8,9 @@ Firmware and libraries for the akros2 robot, based on [linorobot2_hardware](http
 * Calibration sketch updated and moved to a separate directory [akros2_calibration](https://github.com/adityakamath/akros2_firmware/tree/akros2_galactic/akros2_calibration/).
     * Reports max RPMs using pre-defined CPRs, instead of the other way around.
     * Also reports the calculated CPRs and its deviation from the pre-defined CPRs.
-* Mode subscriber with custom [akros2_msgs/Mode](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs) type.
+* Mode subscriber with custom [akros2_msgs/Mode](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Mode.msg) type.
+* Feedback publisher with custom [akros2_msgs/Feedback](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Feedback.msg) and [akros2_msgs/Velocities](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Velocities.msg) types
+* Parameter server to read PID gain values set on the ROS2 host, and to react to these values when they change. Used for PID tuning.
 * Fuse encoder and IMU measurements (TODO).
 * Add parameters (TODO).
 

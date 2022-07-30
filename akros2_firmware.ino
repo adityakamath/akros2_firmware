@@ -114,7 +114,10 @@ const char * kp_name = "motor_kp";
 const char * ki_name = "motor_ki";
 const char * kd_name = "motor_kd";
 
-double kp, ki, kd;
+double kp = K_P;
+double ki = K_I;
+double kd = K_D;
+
 float cur_rpm1, cur_rpm2, cur_rpm3, cur_rpm4;
 float req_rpm1, req_rpm2, req_rpm3, req_rpm4;
 
