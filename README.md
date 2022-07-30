@@ -11,7 +11,8 @@ Firmware and libraries for the akros2 robot, based on [linorobot2_hardware](http
 * Mode subscriber with custom [akros2_msgs/Mode](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Mode.msg) type.
 * Feedback publisher with custom [akros2_msgs/Feedback](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Feedback.msg) and [akros2_msgs/Velocities](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Velocities.msg) types
 * Parameter server to read PID gain values set on the ROS2 host, and to react to these values when they change. Used for PID tuning.
+    * Parameters are initialized using values defined in the configuration. These values are also used during re-initialization (when agent is reconnected)
+    * Config needs to be updated and then the firmware needs to be recompiled with the tuned PID gains.
 * Fuse encoder and IMU measurements (TODO).
-* Add parameters (TODO).
 
 Generic linorobot2 installation and setup instructions can be found on the [galactic](https://github.com/adityakamath/akros2_firmware/tree/galactic) branch.
