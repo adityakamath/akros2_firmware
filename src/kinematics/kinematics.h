@@ -33,7 +33,6 @@ class Kinematics
             float motor3;
             float motor4;
         };
-        
         struct velocities
         {
             float linear_x;
@@ -54,12 +53,14 @@ class Kinematics
         velocities getVelocities(float rpm1, float rpm2, float rpm3, float rpm4);
         rpm getRPM(float linear_x, float linear_y, float angular_z);
         float getMaxRPM();
+        void setMaxRPM(float rpm_ratio);
 
     private:
         rpm calculateRPM(float linear_x, float linear_y, float angular_z);
         int getTotalWheels(base robot_base);
 
         float max_rpm_;
+        float max_rpm_scaled_;
         float wheels_y_distance_;
         float pwm_res_;
         float wheel_circumference_;

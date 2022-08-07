@@ -110,13 +110,15 @@ Kinematics kinematics(
 Odometry odometry;
 IMU imu;
 
-const char * kp_name = "motor_kp";
-const char * ki_name = "motor_ki";
-const char * kd_name = "motor_kd";
+const char * kp_name        = "kp";
+const char * ki_name        = "ki";
+const char * kd_name        = "kd";
+const char * rpm_ratio_name = "scale";
 
 double kp = K_P;
 double ki = K_I;
 double kd = K_D;
+double rpm_ratio = MAX_RPM_RATIO;
 
 float cur_rpm1, cur_rpm2, cur_rpm3, cur_rpm4;
 float req_rpm1, req_rpm2, req_rpm3, req_rpm4;
@@ -213,6 +215,9 @@ void paramCallback(Parameter * param)
   RCSOFTCHECK(rclc_parameter_get_double(&param_server, kp_name, &kp));
   RCSOFTCHECK(rclc_parameter_get_double(&param_server, ki_name, &ki));
   RCSOFTCHECK(rclc_parameter_get_double(&param_server, kd_name, &kd));
+  RCSOFTCHECK(rclc_parameter_get_double(&param_server, rpm_ratio_name, &rpm_ratio));
+
+  kinematics.setMaxRPM(rpm_ratio);
 
   motor1_pid.updateConstants(kp, ki, kd);
   motor2_pid.updateConstants(kp, ki, kd);
@@ -244,7 +249,7 @@ bool createEntities()
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
           "imu"));
 
-  // create pid control msg
+  // create pid feedback publisher
   RCCHECK(rclc_publisher_init_default(
           &feedback_publisher,
           &node,
@@ -274,7 +279,7 @@ bool createEntities()
           timerCallback));
 
   // create parameter server
-  param_options = {.notify_changed_over_dds = true, .max_params = 3};
+  param_options = {.notify_changed_over_dds = true, .max_params = 4};
   RCCHECK(rclc_parameter_server_init_with_option(
           &param_server,
           &node,
@@ -305,11 +310,13 @@ bool createEntities()
   RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
 
   // Set parameter default values
   RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
   RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
   RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
+  RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
 
   // synchronize time with the agent
   RCCHECK(rmw_uros_sync_session(10));
@@ -358,6 +365,9 @@ void fullStop()
   motor2_pid.resetAll();
   motor3_pid.resetAll();
   motor4_pid.resetAll();
+
+  req_rpm1 = req_rpm2 = req_rpm3 = req_rpm4 = 0;
+  cur_rpm1 = cur_rpm2 = cur_rpm3 = cur_rpm4 = 0;
 }
 
 void updateMode()
@@ -376,19 +386,16 @@ void updateMode()
 
 void moveBase()
 {
-  //TODO:
-  // brake if there's no command received, or when it's only the first command sent
-  //if((millis() - prev_cmd_time) >= 200)
-  //{
-    //twist_msg.linear.x = 0.0;
-    //twist_msg.linear.y = 0.0;
-    //twist_msg.angular.z = 0.0;
-
-    //digitalWrite(LED_PIN, HIGH);
-  //}
-  
-  if( twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0 )
+  if(twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0)
   {
+    // brake if there's no command received, or when it's only the first command sent
+    //if(((millis() - prev_cmd_time) >= 200))
+    //{
+      //twist_msg.linear.x = 0.0;
+      //twist_msg.linear.y = 0.0;
+      //twist_msg.angular.z = 0.0;
+    //}
+
     // get the required rpm for each motor based on required velocities, and base used
     Kinematics::rpm req_rpm = kinematics.getRPM(
                                   twist_msg.linear.x,
@@ -405,18 +412,28 @@ void moveBase()
     cur_rpm3 = motor3_encoder.getRPM();
     cur_rpm4 = motor4_encoder.getRPM();
 
+    float pwm1 = motor1_pid.compute(req_rpm1, cur_rpm1);
+    float pwm2 = motor2_pid.compute(req_rpm2, cur_rpm2);
+    float pwm3 = motor3_pid.compute(req_rpm3, cur_rpm3);
+    float pwm4 = motor4_pid.compute(req_rpm4, cur_rpm4);
+
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
-    motor1_controller.spin(motor1_pid.compute(req_rpm1, cur_rpm1));
-    motor2_controller.spin(motor2_pid.compute(req_rpm2, cur_rpm2));
-    motor3_controller.spin(motor3_pid.compute(req_rpm3, cur_rpm3));
-    motor4_controller.spin(motor4_pid.compute(req_rpm4, cur_rpm4));
+    // if PWM value is more than 50% of PWM_MAX, it is ramped with a delay of 20ms.
+
+    if(abs(pwm1) > 0.50*PWM_MAX){ motor1_controller.spin(pwm1/2); delay(UPDATE_RATE); }
+    if(abs(pwm2) > 0.50*PWM_MAX){ motor2_controller.spin(pwm2/2); delay(UPDATE_RATE); }
+    if(abs(pwm3) > 0.50*PWM_MAX){ motor3_controller.spin(pwm3/2); delay(UPDATE_RATE); }
+    if(abs(pwm4) > 0.50*PWM_MAX){ motor4_controller.spin(pwm4/2); delay(UPDATE_RATE); }
+
+    motor1_controller.spin(pwm1);
+    motor2_controller.spin(pwm2);
+    motor3_controller.spin(pwm3);
+    motor4_controller.spin(pwm4);
   }
   else
   {
     fullStop();
-    req_rpm1 = req_rpm2 = req_rpm3 = req_rpm4 = 0;
-    cur_rpm1 = cur_rpm2 = cur_rpm3 = cur_rpm4 = 0;
   }
 
   Kinematics::velocities current_vel = kinematics.getVelocities(
@@ -450,14 +467,14 @@ void publishData()
   req_rpm_msg.motor3 = req_rpm3;
   req_rpm_msg.motor4 = req_rpm4;
 
-  feedback_msg.current  = cur_rpm_msg;
+  feedback_msg.measured = cur_rpm_msg;
   feedback_msg.required = req_rpm_msg;
 
   struct timespec time_stamp = getTime();
 
   imu_msg.header.stamp.sec = time_stamp.tv_sec;
   imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-  
+
   odom_msg.header.stamp.sec = time_stamp.tv_sec;
   odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 

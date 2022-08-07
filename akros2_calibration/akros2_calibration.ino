@@ -20,7 +20,7 @@
 #include "src/kinematics/kinematics.h"
 #include "src/motor/motor.h"
 
-#define SAMPLE_TIME 10 //seconds
+#define SAMPLE_TIME 20 //seconds
 #define LED_PIN 13
 #define MEASURED_VOLTAGE constrain(MOTOR_POWER_MEASURED_VOLTAGE, 0, MOTOR_OPERATING_VOLTAGE)
 #define MOTOR_POWER_RATIO MEASURED_VOLTAGE/MOTOR_OPERATING_VOLTAGE
@@ -187,7 +187,7 @@ void printSummary()
 
   Serial.println("Update MOTOR_MAX_RPM in config.h and build/run calibration sketch again");
 
-  Serial.println("\r\n====================COUNTS_PER_REVx====================");
+  Serial.println("\r\n====================COUNTS_PER_REV====================");
   for(int k=0; k<total_motors; k++)
   {
     Serial.print(labels[k]);
@@ -200,7 +200,7 @@ void printSummary()
     Serial.println("%");
   }
 
-  Serial.println("Calculated values must match config.h values (COUNTS_PER_REVx) with +/- 5% acceptable deviation");
+  Serial.println("Calculated values must match config.h value (COUNTS_PER_REV) with +/- 5% acceptable deviation");
 
   Serial.println("\r\n====================MAX_VELOCITIES====================");
   float max_rpm = kinematics.getMaxRPM();
