@@ -33,12 +33,6 @@
 //#define USE_MPU9150_IMU
 //#define USE_MPU9250_IMU
 
-//PID
-#define K_P 0.6                             // P constant //TODO
-#define K_I 0.8                             // I constant //TODO
-#define K_D 0.5                             // D constant //TODO
-#define UPDATE_RATE 20                      // Control timer timeout in ms (20ms = 50Hz)
-
 //ROBOT ORIENTATION
 /*
          FRONT
@@ -49,7 +43,7 @@
 
 //ROBOT SPECS
 #define MOTOR_MAX_RPM 180                   // motor's max RPM
-#define MAX_RPM_RATIO 1                     // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO //TODO
+#define MAX_RPM_RATIO 1                     // max RPM allowed for each MAX_RPM_ALLOWED = MOTOR_MAX_RPM * MAX_RPM_RATIO
 #define MOTOR_OPERATING_VOLTAGE 12          // motor's operating voltage (used to calculate max RPM)
 #define MOTOR_POWER_MAX_VOLTAGE 9           // max voltage of the motor's power source (used to calculate max RPM)
 #define MOTOR_POWER_MEASURED_VOLTAGE 9      // current voltage reading of the power connected to the motor (used for calibration)
