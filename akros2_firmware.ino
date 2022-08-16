@@ -34,12 +34,14 @@
 #include "akros2_base_config.h"
 #define ENCODER_USE_INTERRUPTS
 #define ENCODER_OPTIMIZE_INTERRUPTS
+#define PULLUP_INPUT
 #include "src/encoder/encoder.h"
 #include "src/motor/motor.h"
 #include "src/kinematics/kinematics.h"
 #include "src/pid/pid.h"
 #include "src/odometry/odometry.h"
 #include "src/imu/imu.h"
+#include "src/movingAvg/movingAvg.h"
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){errorLoop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
@@ -92,10 +94,10 @@ Motor motor2_controller(PWM_FREQUENCY, PWM_BITS, MOTOR2_INV, MOTOR2_PWM, MOTOR2_
 Motor motor3_controller(PWM_FREQUENCY, PWM_BITS, MOTOR3_INV, MOTOR3_PWM, MOTOR3_IN_A, MOTOR3_IN_B);
 Motor motor4_controller(PWM_FREQUENCY, PWM_BITS, MOTOR4_INV, MOTOR4_PWM, MOTOR4_IN_A, MOTOR4_IN_B);
 
-PID motor1_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-PID motor2_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-PID motor3_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
-PID motor4_pid(PWM_MIN, PWM_MAX, K_P, K_I, K_D);
+PID motor1_pid(PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO, K_P, K_I, K_D);
+PID motor2_pid(PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO, K_P, K_I, K_D);
+PID motor3_pid(PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO, K_P, K_I, K_D);
+PID motor4_pid(PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO, K_P, K_I, K_D);
 
 Kinematics kinematics(
   Kinematics::LINO_BASE,
@@ -106,6 +108,11 @@ Kinematics kinematics(
   WHEEL_DIAMETER,
   LR_WHEELS_DISTANCE
 );
+
+movingAvg filter1(3);
+movingAvg filter2(3);
+movingAvg filter3(3);
+movingAvg filter4(3);
 
 Odometry odometry;
 IMU imu;
@@ -122,6 +129,7 @@ double rpm_ratio = MAX_RPM_RATIO;
 
 float cur_rpm1, cur_rpm2, cur_rpm3, cur_rpm4;
 float req_rpm1, req_rpm2, req_rpm3, req_rpm4;
+float smooth_pwm1, smooth_pwm2, smooth_pwm3, smooth_pwm4;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -154,6 +162,12 @@ void setup()
 
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
+
+  //initialize moving average filters
+  filter1.begin();
+  filter2.begin();
+  filter3.begin();
+  filter4.begin();
 
   setNeopixel(toCRGB(0, 255, 255)); // STARTUP: Cyan
   FastLED.show();
@@ -368,6 +382,7 @@ void fullStop()
 
   req_rpm1 = req_rpm2 = req_rpm3 = req_rpm4 = 0;
   cur_rpm1 = cur_rpm2 = cur_rpm3 = cur_rpm4 = 0;
+  smooth_pwm1 = smooth_pwm2 = smooth_pwm3 = smooth_pwm4 = 0;
 }
 
 void updateMode()
@@ -389,12 +404,12 @@ void moveBase()
   if(twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0)
   {
     // brake if there's no command received, or when it's only the first command sent
-    //if(((millis() - prev_cmd_time) >= 200))
-    //{
-      //twist_msg.linear.x = 0.0;
-      //twist_msg.linear.y = 0.0;
-      //twist_msg.angular.z = 0.0;
-    //}
+    if(((millis() - prev_cmd_time) >= 200))
+    {
+      twist_msg.linear.x = 0.0;
+      twist_msg.linear.y = 0.0;
+      twist_msg.angular.z = 0.0;
+    }
 
     // get the required rpm for each motor based on required velocities, and base used
     Kinematics::rpm req_rpm = kinematics.getRPM(
@@ -406,7 +421,7 @@ void moveBase()
     req_rpm2 = req_rpm.motor2;
     req_rpm3 = req_rpm.motor3;
     req_rpm4 = req_rpm.motor4;
-
+    
     cur_rpm1 = motor1_encoder.getRPM();
     cur_rpm2 = motor2_encoder.getRPM();
     cur_rpm3 = motor3_encoder.getRPM();
@@ -419,17 +434,21 @@ void moveBase()
 
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
-    // if PWM value is more than 50% of PWM_MAX, it is ramped with a delay of 20ms.
 
-    if(abs(pwm1) > 0.50*PWM_MAX){ motor1_controller.spin(pwm1/2); delay(UPDATE_RATE); }
-    if(abs(pwm2) > 0.50*PWM_MAX){ motor2_controller.spin(pwm2/2); delay(UPDATE_RATE); }
-    if(abs(pwm3) > 0.50*PWM_MAX){ motor3_controller.spin(pwm3/2); delay(UPDATE_RATE); }
-    if(abs(pwm4) > 0.50*PWM_MAX){ motor4_controller.spin(pwm4/2); delay(UPDATE_RATE); }
+    smooth_pwm1 += (pwm1 - smooth_pwm1)*SMOOTHING_CONST;
+    smooth_pwm2 += (pwm2 - smooth_pwm2)*SMOOTHING_CONST;
+    smooth_pwm3 += (pwm3 - smooth_pwm3)*SMOOTHING_CONST;
+    smooth_pwm4 += (pwm4 - smooth_pwm4)*SMOOTHING_CONST;
 
-    motor1_controller.spin(pwm1);
-    motor2_controller.spin(pwm2);
-    motor3_controller.spin(pwm3);
-    motor4_controller.spin(pwm4);
+    //if(abs(pwm1) > MAX_RPM_RATIO*PWM_MAX){ motor1_controller.spin(pwm1/2); delay(UPDATE_RATE); }
+    //if(abs(pwm2) > MAX_RPM_RATIO*PWM_MAX){ motor2_controller.spin(pwm2/2); delay(UPDATE_RATE); }
+    //if(abs(pwm3) > MAX_RPM_RATIO*PWM_MAX){ motor3_controller.spin(pwm3/2); delay(UPDATE_RATE); }
+    //if(abs(pwm4) > MAX_RPM_RATIO*PWM_MAX){ motor4_controller.spin(pwm4/2); delay(UPDATE_RATE); }
+
+    motor1_controller.spin(constrain(smooth_pwm1, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor2_controller.spin(constrain(smooth_pwm2, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor3_controller.spin(constrain(smooth_pwm3, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor4_controller.spin(constrain(smooth_pwm4, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
   }
   else
   {
@@ -462,10 +481,10 @@ void publishData()
   cur_rpm_msg.motor3 = cur_rpm3;
   cur_rpm_msg.motor4 = cur_rpm4;
 
-  req_rpm_msg.motor1 = req_rpm1;
-  req_rpm_msg.motor2 = req_rpm2;
-  req_rpm_msg.motor3 = req_rpm3;
-  req_rpm_msg.motor4 = req_rpm4;
+  req_rpm_msg.motor1 = filter1.reading(req_rpm1);
+  req_rpm_msg.motor2 = filter2.reading(req_rpm2);
+  req_rpm_msg.motor3 = filter3.reading(req_rpm3);
+  req_rpm_msg.motor4 = filter4.reading(req_rpm4);
 
   feedback_msg.measured = cur_rpm_msg;
   feedback_msg.required = req_rpm_msg;

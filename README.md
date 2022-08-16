@@ -5,7 +5,7 @@ Firmware and libraries for the akros2 robot, based on [linorobot2_hardware](http
 * Option to set ROS_DOMAIN_ID.
 * Neopixel status and mode indicator using [FastLED](https://github.com/FastLED/FastLED).
 * Compiling/uploading using Arduino IDE and [modified micro_ros_arduino libraries](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic) instead of PlatformIO.
-* Calibration sketch updated and moved to a separate directory [akros2_calibration](https://github.com/adityakamath/akros2_firmware/tree/akros2_galactic/akros2_calibration/).
+* Calibration sketch updated and moved to a separate repo [arduino_sketchbook_ros](https://github.com/adityakamath/arduino_sketchbook_ros/tree/main/akros2_calibration/).
     * Reports max RPMs using pre-defined CPRs, instead of the other way around.
     * Also reports the calculated CPRs and its deviation from the pre-defined CPRs.
 * Mode subscriber with custom [akros2_msgs/Mode](https://github.com/adityakamath/micro_ros_arduino/tree/akros2_galactic/extras/library_generation/extra_packages/akros2_msgs/msg/Mode.msg) type.

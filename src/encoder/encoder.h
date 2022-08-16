@@ -83,7 +83,7 @@ public:
 			pin1 = pin2;
 			pin2 = temp_pin;
 		}
-		#ifdef INPUT_PULLUP
+		#ifdef PULLUP_INPUT
 		pinMode(pin1, INPUT_PULLUP);
 		pinMode(pin2, INPUT_PULLUP);
 		#else
@@ -93,7 +93,7 @@ public:
 		digitalWrite(pin2, HIGH);
 		#endif
 
-		counts_per_rev_ = counts_per_rev;	
+		counts_per_rev_ = counts_per_rev;
 
 		encoder.pin1_register = PIN_TO_BASEREG(pin1);
 		encoder.pin1_bitmask = PIN_TO_BITMASK(pin1);
