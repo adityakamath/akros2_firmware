@@ -41,7 +41,6 @@
 #include "src/pid/pid.h"
 #include "src/odometry/odometry.h"
 #include "src/imu/imu.h"
-#include "src/movingAvg/movingAvg.h"
 
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){errorLoop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
@@ -109,11 +108,6 @@ Kinematics kinematics(
   LR_WHEELS_DISTANCE
 );
 
-movingAvg filter1(3);
-movingAvg filter2(3);
-movingAvg filter3(3);
-movingAvg filter4(3);
-
 Odometry odometry;
 IMU imu;
 
@@ -162,12 +156,6 @@ void setup()
 
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
-
-  //initialize moving average filters
-  filter1.begin();
-  filter2.begin();
-  filter3.begin();
-  filter4.begin();
 
   setNeopixel(toCRGB(0, 255, 255)); // STARTUP: Cyan
   FastLED.show();
@@ -481,10 +469,10 @@ void publishData()
   cur_rpm_msg.motor3 = cur_rpm3;
   cur_rpm_msg.motor4 = cur_rpm4;
 
-  req_rpm_msg.motor1 = filter1.reading(req_rpm1);
-  req_rpm_msg.motor2 = filter2.reading(req_rpm2);
-  req_rpm_msg.motor3 = filter3.reading(req_rpm3);
-  req_rpm_msg.motor4 = filter4.reading(req_rpm4);
+  req_rpm_msg.motor1 = req_rpm1;
+  req_rpm_msg.motor2 = req_rpm2;
+  req_rpm_msg.motor3 = req_rpm3;
+  req_rpm_msg.motor4 = req_rpm4;
 
   feedback_msg.measured = cur_rpm_msg;
   feedback_msg.required = req_rpm_msg;
