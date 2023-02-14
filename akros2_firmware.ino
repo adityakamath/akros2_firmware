@@ -336,7 +336,6 @@ bool destroyEntities()
   rc += rcl_publisher_fini(&odom_publisher, &node);
   rc += rcl_publisher_fini(&imu_publisher, &node);
   rc += rcl_publisher_fini(&feedback_publisher, &node);
-  rc += rclc_executor_fini(&executor);
   rc += rcl_timer_fini(&timer);
   rc += rcl_subscription_fini(&twist_subscriber, &node);
   rc += rcl_subscription_fini(&mode_subscriber, &node);
