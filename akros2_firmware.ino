@@ -23,13 +23,15 @@
 #include <rclc/executor.h>
 #include <rclc_parameter/rclc_parameter.h>
 
+#include <rosidl_runtime_c/string.h>
+#include <rosidl_runtime_c/string_functions.h>
+#include <rosidl_runtime_c/primitives_sequence.h>
+
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
 #include <geometry_msgs/msg/twist.h>
-
+#include <sensor_msgs/msg/joint_state.h>
 #include <akros2_msgs/msg/Mode.h>
-#include <akros2_msgs/msg/Velocities.h>
-#include <akros2_msgs/msg/Feedback.h>
 
 #include "akros2_base_config.h"
 #define ENCODER_USE_INTERRUPTS
@@ -52,17 +54,29 @@
 
 rcl_publisher_t    odom_publisher;
 rcl_publisher_t    imu_publisher;
-rcl_publisher_t    feedback_publisher;
+rcl_publisher_t    joint_state_publisher;
+rcl_publisher_t    req_state_publisher;
 rcl_subscription_t twist_subscriber;
 rcl_subscription_t mode_subscriber;
 
-akros2_msgs__msg__Mode       mode_msg;
-akros2_msgs__msg__Velocities cur_rpm_msg;
-akros2_msgs__msg__Velocities req_rpm_msg;
-akros2_msgs__msg__Feedback   feedback_msg;
-nav_msgs__msg__Odometry      odom_msg;
-sensor_msgs__msg__Imu        imu_msg;
-geometry_msgs__msg__Twist    twist_msg;
+akros2_msgs__msg__Mode             mode_msg;
+sensor_msgs__msg__JointState       joint_state_msg;
+sensor_msgs__msg__JointState       req_state_msg;
+nav_msgs__msg__Odometry            odom_msg;
+sensor_msgs__msg__Imu              imu_msg;
+geometry_msgs__msg__Twist          twist_msg;
+
+rosidl_runtime_c__String           base_frame_str;
+rosidl_runtime_c__String           odom_frame_str;
+rosidl_runtime_c__String__Sequence joint_name_seq;
+rosidl_runtime_c__double__Sequence joint_vel_seq;
+rosidl_runtime_c__double__Sequence joint_pos_seq;
+rosidl_runtime_c__double__Sequence req_vel_seq;
+rosidl_runtime_c__double__Sequence req_pos_seq;
+
+float joint_rpm[NR_OF_JOINTS];
+float req_rpm[NR_OF_JOINTS];
+float smooth_pwm[NR_OF_JOINTS];
 
 rclc_executor_t          executor;
 rclc_support_t           support;
@@ -70,8 +84,8 @@ rcl_init_options_t       init_options;
 rcl_allocator_t          allocator;
 rcl_node_t               node;
 rcl_timer_t              timer;
-rclc_parameter_server_t  param_server;
-rclc_parameter_options_t param_options;
+////rclc_parameter_server_t  param_server;
+////rclc_parameter_options_t param_options;
 
 enum states
 {
@@ -121,10 +135,6 @@ double ki = K_I;
 double kd = K_D;
 double rpm_ratio = MAX_RPM_RATIO;
 
-float cur_rpm1, cur_rpm2, cur_rpm3, cur_rpm4;
-float req_rpm1, req_rpm2, req_rpm3, req_rpm4;
-float smooth_pwm1, smooth_pwm2, smooth_pwm3, smooth_pwm4;
-
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
 unsigned long prev_odom_update = 0;
@@ -137,10 +147,7 @@ void setup()
   bool imu_ok = imu.init();
   if(!imu_ok)
   {
-    while(1)
-    {
-      flashLED(3);
-    }
+    while(1){ flashLED(3); }
   }
 
   #ifdef TRANSPORT_SERIAL
@@ -157,11 +164,14 @@ void setup()
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
 
-  setNeopixel(toCRGB(0, 255, 255)); // STARTUP: Cyan
+  state = WAITING_AGENT;
+
+  setNeopixel(CRGB(0, 255, 255)); // STARTUP: Cyan
   FastLED.show();
 }
 
-void loop() {
+void loop() 
+{
   switch (state)
   {
     case WAITING_AGENT:
@@ -169,17 +179,11 @@ void loop() {
       break;
     case AGENT_AVAILABLE:
       state = (true == createEntities()) ? AGENT_CONNECTED : WAITING_AGENT;
-      if (state == WAITING_AGENT)
-      {
-        destroyEntities();
-      }
+      if (state == WAITING_AGENT){ destroyEntities(); }
       break;
     case AGENT_CONNECTED:
       EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
-      if (state == AGENT_CONNECTED)
-      {
-        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
-      }
+      if (state == AGENT_CONNECTED){ rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100)); }
       break;
     case AGENT_DISCONNECTED:
       destroyEntities();
@@ -204,28 +208,33 @@ void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
   }
 }
 
-void twistCallback(const void * msgin)
-{
-  prev_cmd_time = millis();
-}
+void twistCallback(const void * msgin){ prev_cmd_time = millis(); }
 
 void modeCallback(const void * msgin){}
 
-void paramCallback(Parameter * param)
-{
-  // Get parameter values from parameter server
-  RCSOFTCHECK(rclc_parameter_get_double(&param_server, kp_name, &kp));
-  RCSOFTCHECK(rclc_parameter_get_double(&param_server, ki_name, &ki));
-  RCSOFTCHECK(rclc_parameter_get_double(&param_server, kd_name, &kd));
-  RCSOFTCHECK(rclc_parameter_get_double(&param_server, rpm_ratio_name, &rpm_ratio));
+// bool paramCallback(const Parameter * old_param, const Parameter * new_param, void * context)
+// {
+//   (void) context;
 
-  kinematics.setMaxRPM(rpm_ratio);
+//   if (old_param == NULL && new_param == NULL) {
+//     return false;
+//   }
+  
+//   // Get parameter values from parameter server
+//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, kp_name, &kp));
+//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, ki_name, &ki));
+//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, kd_name, &kd));
+//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, rpm_ratio_name, &rpm_ratio));
 
-  motor1_pid.updateConstants(kp, ki, kd);
-  motor2_pid.updateConstants(kp, ki, kd);
-  motor3_pid.updateConstants(kp, ki, kd);
-  motor4_pid.updateConstants(kp, ki, kd);
-}
+//   kinematics.setMaxRPM(rpm_ratio);
+
+//   motor1_pid.updateConstants(kp, ki, kd);
+//   motor2_pid.updateConstants(kp, ki, kd);
+//   motor3_pid.updateConstants(kp, ki, kd);
+//   motor4_pid.updateConstants(kp, ki, kd);
+
+//   return true;
+// }
 
 bool createEntities()
 {
@@ -251,12 +260,19 @@ bool createEntities()
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
           "imu"));
 
-  // create pid feedback publisher
+  // create combined measured joint state publisher
   RCCHECK(rclc_publisher_init_default(
-          &feedback_publisher,
+          &joint_state_publisher,
           &node,
-          ROSIDL_GET_MSG_TYPE_SUPPORT(akros2_msgs, msg, Feedback),
-          "feedback"));
+          ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+          "joint_states"));
+
+  // create combined required state publisher
+  RCCHECK(rclc_publisher_init_default(
+          &req_state_publisher,
+          &node,
+          ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+          "req_states"));
 
   // create twist command subscriber
   RCCHECK(rclc_subscription_init_default(
@@ -273,23 +289,32 @@ bool createEntities()
           "mode"));
 
   // create timer
-  const unsigned int timeout_ms = UPDATE_RATE;
+  const unsigned int timeout_ms = UPDATE_PERIOD;
   RCCHECK(rclc_timer_init_default(
           &timer,
           &support,
           RCL_MS_TO_NS(timeout_ms),
           timerCallback));
 
-  // create parameter server
-  param_options = {.notify_changed_over_dds = true, .max_params = 4};
-  RCCHECK(rclc_parameter_server_init_with_option(
-          &param_server,
-          &node,
-          &param_options));
+  // // create parameter server
+  // param_options = {
+  //       .notify_changed_over_dds = true,
+  //       .max_params = 8,
+  //       .allow_undeclared_parameters = false,
+  //       .low_mem_mode = false};
+  
+  // RCCHECK(rclc_parameter_server_init_with_option(
+  //         &param_server,
+  //         &node,
+  //         &param_options));
+
+  //  RCCHECK(rclc_parameter_server_init_default(
+  //         &param_server,
+  //         &node));
 
   // create executor
   executor = rclc_executor_get_zero_initialized_executor();
-  RCCHECK(rclc_executor_init(&executor, &support.context, RCLC_PARAMETER_EXECUTOR_HANDLES_NUMBER + 3, & allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, RCLC_EXECUTOR_PARAMETER_SERVER_HANDLES+3, & allocator));
   RCCHECK(rclc_executor_add_subscription(
           &executor,
           &twist_subscriber,
@@ -303,22 +328,48 @@ bool createEntities()
           &modeCallback,
           ON_NEW_DATA));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
-  RCCHECK(rclc_executor_add_parameter_server(
-          &executor,
-          &param_server,
-          paramCallback));
+  //RCCHECK(rclc_executor_add_parameter_server(
+  //        &executor,
+  //        &param_server,
+  //        paramCallback));
 
-  // Add parameters to the server
-  RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
-  RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
-  RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
-  RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
+  // // Add parameters to the server
+  // RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
+  // RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
+  // RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
+  // RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
 
-  // Set parameter default values
-  RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
-  RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
-  RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
-  RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
+  // // Set parameter default values
+  // RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
+  // RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
+  // RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
+  // RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
+
+  rosidl_runtime_c__String__init(&base_frame_str);
+  rosidl_runtime_c__String__init(&odom_frame_str);
+  rosidl_runtime_c__String__Sequence__init(&joint_name_seq, NR_OF_JOINTS);
+  rosidl_runtime_c__double__Sequence__init(&joint_vel_seq, NR_OF_JOINTS);
+  rosidl_runtime_c__double__Sequence__init(&joint_pos_seq, NR_OF_JOINTS);
+  rosidl_runtime_c__double__Sequence__init(&req_vel_seq, NR_OF_JOINTS);
+  rosidl_runtime_c__double__Sequence__init(&req_pos_seq, NR_OF_JOINTS);
+
+  // populate frame_id and joint names
+  rosidl_runtime_c__String__assign(&base_frame_str, BASE_FRAME_ID);
+  rosidl_runtime_c__String__assign(&odom_frame_str, ODOM_FRAME_ID);
+  rosidl_runtime_c__String__assign(&joint_name_seq.data[0], "joint_lf"); // motor 1
+  rosidl_runtime_c__String__assign(&joint_name_seq.data[1], "joint_rf"); // motor 2
+  rosidl_runtime_c__String__assign(&joint_name_seq.data[2], "joint_lb"); // motor 3
+  rosidl_runtime_c__String__assign(&joint_name_seq.data[3], "joint_rb"); // motor 4
+
+  for(int i=0; i<NR_OF_JOINTS; i++)
+  {
+    joint_rpm[i] = 0.0;
+    joint_vel_seq.data[i] = 0.0;
+    joint_pos_seq.data[i] = 0.0;
+    req_rpm[i] = 0.0;
+    req_vel_seq.data[i] = 0.0;
+    req_pos_seq.data[i] = 0.0;
+  }
 
   // synchronize time with the agent
   RCCHECK(rmw_uros_sync_session(10));
@@ -335,18 +386,26 @@ bool destroyEntities()
   rcl_ret_t rc = rclc_executor_fini(&executor);
   rc += rcl_publisher_fini(&odom_publisher, &node);
   rc += rcl_publisher_fini(&imu_publisher, &node);
-  rc += rcl_publisher_fini(&feedback_publisher, &node);
-  rc += rclc_executor_fini(&executor);
+  rc += rcl_publisher_fini(&joint_state_publisher, &node);
+  rc += rcl_publisher_fini(&req_state_publisher, &node);
   rc += rcl_timer_fini(&timer);
   rc += rcl_subscription_fini(&twist_subscriber, &node);
   rc += rcl_subscription_fini(&mode_subscriber, &node);
-  rc += rclc_parameter_server_fini(&param_server, &node);
+  //rc += rclc_parameter_server_fini(&param_server, &node);
   rc += rcl_node_fini(&node);
   rc += rclc_support_fini(&support);
   rc += rcl_init_options_fini(&init_options);
 
+  rosidl_runtime_c__String__fini(&base_frame_str);
+  rosidl_runtime_c__String__fini(&odom_frame_str);
+  rosidl_runtime_c__String__Sequence__fini(&joint_name_seq);
+  rosidl_runtime_c__double__Sequence__fini(&joint_vel_seq);
+  rosidl_runtime_c__double__Sequence__fini(&joint_pos_seq);
+  rosidl_runtime_c__double__Sequence__fini(&req_vel_seq);
+  rosidl_runtime_c__double__Sequence__fini(&req_pos_seq);
+
   fullStop();
-  setNeopixel(toCRGB(0, 255, 255)); // DISCONNECTED: Cyan
+  setNeopixel(CRGB(0, 255, 255)); // DISCONNECTED: Cyan
   FastLED.show();
 
   return (rc != RCL_RET_OK) ? false : true;
@@ -368,21 +427,24 @@ void fullStop()
   motor3_pid.resetAll();
   motor4_pid.resetAll();
 
-  req_rpm1 = req_rpm2 = req_rpm3 = req_rpm4 = 0;
-  cur_rpm1 = cur_rpm2 = cur_rpm3 = cur_rpm4 = 0;
-  smooth_pwm1 = smooth_pwm2 = smooth_pwm3 = smooth_pwm4 = 0;
+  for(int i=0; i<NR_OF_JOINTS; i++)
+  {
+    joint_rpm[i] = 0.0;
+    req_rpm[i] = 0.0;
+    smooth_pwm[i] = 0.0;
+  }
 }
 
 void updateMode()
 {
   if (mode_msg.estop)
   {
-    setNeopixel(toCRGB(255, 0, 0)); // STOP: Red
+    setNeopixel(CRGB(255, 0, 0)); // STOP: Red
     fullStop();
   }
   else
   {
-    mode_msg.auto_t ? setNeopixel(toCRGB(0, 55, 255)) : setNeopixel(toCRGB(0, 255, 55)); // AUTO: Blue, TELEOP: Green
+    mode_msg.auto_t ? setNeopixel(CRGB(0, 55, 255)) : setNeopixel(CRGB(0, 255, 55)); // AUTO: Blue, TELEOP: Green
   }
   FastLED.show();
 }
@@ -400,43 +462,38 @@ void moveBase()
     }
 
     // get the required rpm for each motor based on required velocities, and base used
-    Kinematics::rpm req_rpm = kinematics.getRPM(
-                                  twist_msg.linear.x,
-                                  twist_msg.linear.y,
-                                  twist_msg.angular.z);
+    Kinematics::rpm required_rpm = kinematics.getRPM(
+                                    twist_msg.linear.x,
+                                    twist_msg.linear.y,
+                                    twist_msg.angular.z);
 
-    req_rpm1 = req_rpm.motor1;
-    req_rpm2 = req_rpm.motor2;
-    req_rpm3 = req_rpm.motor3;
-    req_rpm4 = req_rpm.motor4;
+    req_rpm[0] = required_rpm.motor1;
+    req_rpm[1] = required_rpm.motor2;
+    req_rpm[2] = required_rpm.motor3;
+    req_rpm[3] = required_rpm.motor4;
     
-    cur_rpm1 = motor1_encoder.getRPM();
-    cur_rpm2 = motor2_encoder.getRPM();
-    cur_rpm3 = motor3_encoder.getRPM();
-    cur_rpm4 = motor4_encoder.getRPM();
+    joint_rpm[0] = motor1_encoder.getRPM();
+    joint_rpm[1] = motor2_encoder.getRPM();
+    joint_rpm[2] = motor3_encoder.getRPM();
+    joint_rpm[3] = motor4_encoder.getRPM();
 
-    float pwm1 = motor1_pid.compute(req_rpm1, cur_rpm1);
-    float pwm2 = motor2_pid.compute(req_rpm2, cur_rpm2);
-    float pwm3 = motor3_pid.compute(req_rpm3, cur_rpm3);
-    float pwm4 = motor4_pid.compute(req_rpm4, cur_rpm4);
+    float pwm_arr[NR_OF_JOINTS];
+    pwm_arr[0] = motor1_pid.compute(req_rpm[0], joint_rpm[0]);
+    pwm_arr[1] = motor2_pid.compute(req_rpm[1], joint_rpm[1]);
+    pwm_arr[2] = motor3_pid.compute(req_rpm[2], joint_rpm[2]);
+    pwm_arr[3] = motor4_pid.compute(req_rpm[3], joint_rpm[3]);
 
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
+    for(int i=0; i<NR_OF_JOINTS; i++)
+    {
+      smooth_pwm[i] += (pwm_arr[i] - smooth_pwm[i])*SMOOTHING_CONST;
+    }
 
-    smooth_pwm1 += (pwm1 - smooth_pwm1)*SMOOTHING_CONST;
-    smooth_pwm2 += (pwm2 - smooth_pwm2)*SMOOTHING_CONST;
-    smooth_pwm3 += (pwm3 - smooth_pwm3)*SMOOTHING_CONST;
-    smooth_pwm4 += (pwm4 - smooth_pwm4)*SMOOTHING_CONST;
-
-    //if(abs(pwm1) > MAX_RPM_RATIO*PWM_MAX){ motor1_controller.spin(pwm1/2); delay(UPDATE_RATE); }
-    //if(abs(pwm2) > MAX_RPM_RATIO*PWM_MAX){ motor2_controller.spin(pwm2/2); delay(UPDATE_RATE); }
-    //if(abs(pwm3) > MAX_RPM_RATIO*PWM_MAX){ motor3_controller.spin(pwm3/2); delay(UPDATE_RATE); }
-    //if(abs(pwm4) > MAX_RPM_RATIO*PWM_MAX){ motor4_controller.spin(pwm4/2); delay(UPDATE_RATE); }
-
-    motor1_controller.spin(constrain(smooth_pwm1, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
-    motor2_controller.spin(constrain(smooth_pwm2, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
-    motor3_controller.spin(constrain(smooth_pwm3, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
-    motor4_controller.spin(constrain(smooth_pwm4, PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor1_controller.spin(constrain(smooth_pwm[0], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor2_controller.spin(constrain(smooth_pwm[1], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor3_controller.spin(constrain(smooth_pwm[2], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
+    motor4_controller.spin(constrain(smooth_pwm[3], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
   }
   else
   {
@@ -444,10 +501,10 @@ void moveBase()
   }
 
   Kinematics::velocities current_vel = kinematics.getVelocities(
-                                        cur_rpm1,
-                                        cur_rpm2,
-                                        cur_rpm3,
-                                        cur_rpm4);
+                                        joint_rpm[0],
+                                        joint_rpm[1],
+                                        joint_rpm[2],
+                                        joint_rpm[3]);
 
   unsigned long now = millis();
   float vel_dt = (now - prev_odom_update) / 1000.0;
@@ -461,36 +518,55 @@ void moveBase()
 
 void publishData()
 {
-  imu_msg  = imu.getData();
-  odom_msg = odometry.getData();
-
-  cur_rpm_msg.motor1 = cur_rpm1;
-  cur_rpm_msg.motor2 = cur_rpm2;
-  cur_rpm_msg.motor3 = cur_rpm3;
-  cur_rpm_msg.motor4 = cur_rpm4;
-
-  req_rpm_msg.motor1 = req_rpm1;
-  req_rpm_msg.motor2 = req_rpm2;
-  req_rpm_msg.motor3 = req_rpm3;
-  req_rpm_msg.motor4 = req_rpm4;
-
-  feedback_msg.measured = cur_rpm_msg;
-  feedback_msg.required = req_rpm_msg;
-
   struct timespec time_stamp = getTime();
 
+  // populate IMU data
+  imu_msg  = imu.getData();
   imu_msg.header.stamp.sec = time_stamp.tv_sec;
   imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  imu_msg.header.frame_id = base_frame_str;
 
+  // populate odom data
+  odom_msg = odometry.getData();
   odom_msg.header.stamp.sec = time_stamp.tv_sec;
   odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  odom_msg.header.frame_id = odom_frame_str;
 
-  feedback_msg.header.stamp.sec = time_stamp.tv_sec;
-  feedback_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  // populate required and measured joint states: velocities (rad/s) and positions (rads, in range[-pi, pi])
+  for(int i=0; i<NR_OF_JOINTS; i++)
+  {
+    joint_vel_seq.data[i] = joint_rpm[i] * M_PI * 2 / 60; // rpm to rad/s
+    joint_pos_seq.data[i] += joint_vel_seq.data[i] / UPDATE_FREQ;  // rad/s to rad
+    if (joint_pos_seq.data[i] > M_PI){ joint_pos_seq.data[i] = -1.0 * M_PI; }
+    if (joint_pos_seq.data[i] < -1.0 * M_PI){ joint_pos_seq.data[i] = M_PI; }
 
+    req_vel_seq.data[i] = req_rpm[i] * M_PI * 2 / 60; // rpm to rad/s
+    req_pos_seq.data[i] += req_vel_seq.data[i] / UPDATE_FREQ;  // rad/s to rad
+    if (req_pos_seq.data[i] > M_PI){ req_pos_seq.data[i] = -1.0 * M_PI; }
+    if (req_pos_seq.data[i] < -1.0 * M_PI){ req_pos_seq.data[i] = M_PI; }    
+  }
+
+  // populate measured joint state data
+  joint_state_msg.header.stamp.sec = time_stamp.tv_sec;
+  joint_state_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  joint_state_msg.header.frame_id = base_frame_str;
+  joint_state_msg.name = joint_name_seq;
+  joint_state_msg.velocity = joint_vel_seq;
+  joint_state_msg.position = joint_pos_seq;
+
+  // populate required joint state data
+  req_state_msg.header.stamp.sec = time_stamp.tv_sec;
+  req_state_msg.header.stamp.nanosec = time_stamp.tv_nsec;
+  req_state_msg.header.frame_id = base_frame_str;
+  req_state_msg.name = joint_name_seq;
+  req_state_msg.velocity = req_vel_seq;
+  req_state_msg.position = req_pos_seq;  
+  
+  // publish
   RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
   RCSOFTCHECK(rcl_publish(&odom_publisher, &odom_msg, NULL));
-  RCSOFTCHECK(rcl_publish(&feedback_publisher, &feedback_msg, NULL));
+  RCSOFTCHECK(rcl_publish(&joint_state_publisher, &joint_state_msg, NULL));
+  RCSOFTCHECK(rcl_publish(&req_state_publisher, &req_state_msg, NULL));
 }
 
 void calculateOffset()
@@ -542,17 +618,6 @@ void getTeensyMAC(uint8_t *mac)
   {
     mac[by+2]=(HW_OCOTP_MAC0 >> ((3-by)*8)) & 0xFF;
   }
-}
-
-CRGB toCRGB(uint8_t Cdata, uint8_t Mdata, uint8_t Ydata)
-{
-  CRGB output(0, 0, 0);
-
-  output.r = 255-Cdata;
-  output.g = 255-Mdata;
-  output.b = 255-Ydata;
-
-  return output;
 }
 
 void setNeopixel(CRGB in_led)

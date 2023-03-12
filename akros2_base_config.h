@@ -19,13 +19,17 @@
 //ROS
 #define ROS_DOMAIN_ID 2
 #define NODE "base_node"
-#define NAMESPACE "akros2"
+#define NAMESPACE "drive"
+#define BASE_FRAME_ID "base_link"
+#define ODOM_FRAME_ID "enc_odom_frame"
+#define IMU_FRAME_ID  "imu_frame"
 
 //TRANSPORTS: uncomment the transport you're using
 #define TRANSPORT_SERIAL                    // Serial transport over USB
 //#define TRANSPORT_ETHERNET                  // UDP4 over Ethernet
 
-//DRIVE: uncomment the base you're building
+//DRIVE: uncomment the base you're building and update number of moving joints (motors)
+#define NR_OF_JOINTS 4
 #define LINO_BASE MECANUM                   // Mecanum drive robot
 //#define LINO_BASE DIFFERENTIAL_DRIVE        // 2WD and Tracked robot w/ 2 motors
 //#define LINO_BASE SKID_STEER                // 4WD robot
@@ -47,7 +51,8 @@
 #define K_P 0.80                            // P constant
 #define K_I 0.60                            // I constant
 #define K_D 0.40                            // D constant
-#define UPDATE_RATE 20                      // Control timer timeout in ms (20ms = 50Hz)
+#define UPDATE_PERIOD 20                    // Control timer timeout in ms (20ms = 50Hz)
+#define UPDATE_FREQ   50                    // Control timer frequency in Hz (50Hz = 20ms)
 
 //ROBOT ORIENTATION
 /*
