@@ -13,30 +13,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <micro_ros_arduino.h>
 #include <stdio.h>
 #include <FastLED.h>
 
+#include "akros2_base_config.h"
+#include <micro_ros_arduino.h>
+
 #include <rcl/rcl.h>
-#include <rcl/error_handling.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <rclc_parameter/rclc_parameter.h>
 
-#include <rosidl_runtime_c/string.h>
-#include <rosidl_runtime_c/string_functions.h>
-#include <rosidl_runtime_c/primitives_sequence.h>
-
+#include <akros2_msgs/msg/Mode.h>
+#include <geometry_msgs/msg/twist.h>
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
-#include <geometry_msgs/msg/twist.h>
 #include <sensor_msgs/msg/joint_state.h>
-#include <akros2_msgs/msg/Mode.h>
 
-#include "akros2_base_config.h"
-#define ENCODER_USE_INTERRUPTS
-#define ENCODER_OPTIMIZE_INTERRUPTS
-#define PULLUP_INPUT
+#include <rosidl_runtime_c/string.h>
+#include <rosidl_runtime_c/string_functions.h>
+#include <rosidl_runtime_c/primitives_sequence_functions.h>
+
 #include "src/encoder/encoder.h"
 #include "src/motor/motor.h"
 #include "src/kinematics/kinematics.h"
@@ -52,38 +49,35 @@
   if (uxr_millis() - init > MS) { X; init = uxr_millis();} \
 } while (0)
 
+rcl_subscription_t mode_subscriber;
+rcl_subscription_t twist_subscriber;
 rcl_publisher_t    odom_publisher;
 rcl_publisher_t    imu_publisher;
 rcl_publisher_t    joint_state_publisher;
 rcl_publisher_t    req_state_publisher;
-rcl_subscription_t twist_subscriber;
-rcl_subscription_t mode_subscriber;
 
-akros2_msgs__msg__Mode             mode_msg;
-sensor_msgs__msg__JointState       joint_state_msg;
-sensor_msgs__msg__JointState       req_state_msg;
-nav_msgs__msg__Odometry            odom_msg;
-sensor_msgs__msg__Imu              imu_msg;
-geometry_msgs__msg__Twist          twist_msg;
+akros2_msgs__msg__Mode       mode_msg;
+geometry_msgs__msg__Twist    twist_msg;
+nav_msgs__msg__Odometry      odom_msg;
+sensor_msgs__msg__Imu        imu_msg;
+sensor_msgs__msg__JointState joint_state_msg;
+sensor_msgs__msg__JointState req_state_msg;
 
-rosidl_runtime_c__String           base_frame_str;
-rosidl_runtime_c__String           odom_frame_str;
+rosidl_runtime_c__String base_frame_str;
+rosidl_runtime_c__String odom_frame_str;
+rosidl_runtime_c__String imu_frame_str;
 rosidl_runtime_c__String__Sequence joint_name_seq;
 rosidl_runtime_c__double__Sequence joint_vel_seq;
 rosidl_runtime_c__double__Sequence joint_pos_seq;
 rosidl_runtime_c__double__Sequence req_vel_seq;
 rosidl_runtime_c__double__Sequence req_pos_seq;
 
-float joint_rpm[NR_OF_JOINTS];
-float req_rpm[NR_OF_JOINTS];
-float smooth_pwm[NR_OF_JOINTS];
-
-rclc_executor_t          executor;
-rclc_support_t           support;
-rcl_init_options_t       init_options;
-rcl_allocator_t          allocator;
-rcl_node_t               node;
-rcl_timer_t              timer;
+rclc_executor_t    executor;
+rclc_support_t     support;
+rcl_init_options_t init_options;
+rcl_allocator_t    allocator;
+rcl_node_t         node;
+rcl_timer_t        timer;
 ////rclc_parameter_server_t  param_server;
 ////rclc_parameter_options_t param_options;
 
@@ -93,7 +87,11 @@ enum states
   AGENT_AVAILABLE,
   AGENT_CONNECTED,
   AGENT_DISCONNECTED
-} state;
+} state = WAITING_AGENT;
+
+float joint_rpm[NR_OF_JOINTS];
+float req_rpm[NR_OF_JOINTS];
+float smooth_pwm[NR_OF_JOINTS];
 
 CRGB neopixel[NEOPIXEL_COUNT];
 
@@ -163,8 +161,6 @@ void setup()
 
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
-
-  state = WAITING_AGENT;
 
   setNeopixel(CRGB(0, 255, 255)); // STARTUP: Cyan
   FastLED.show();
@@ -289,7 +285,7 @@ bool createEntities()
           "mode"));
 
   // create timer
-  const unsigned int timeout_ms = UPDATE_PERIOD;
+  const unsigned int timeout_ms = 1000 / UPDATE_FREQ;
   RCCHECK(rclc_timer_init_default(
           &timer,
           &support,
@@ -347,6 +343,7 @@ bool createEntities()
 
   rosidl_runtime_c__String__init(&base_frame_str);
   rosidl_runtime_c__String__init(&odom_frame_str);
+  rosidl_runtime_c__String__init(&imu_frame_str);
   rosidl_runtime_c__String__Sequence__init(&joint_name_seq, NR_OF_JOINTS);
   rosidl_runtime_c__double__Sequence__init(&joint_vel_seq, NR_OF_JOINTS);
   rosidl_runtime_c__double__Sequence__init(&joint_pos_seq, NR_OF_JOINTS);
@@ -356,6 +353,7 @@ bool createEntities()
   // populate frame_id and joint names
   rosidl_runtime_c__String__assign(&base_frame_str, BASE_FRAME_ID);
   rosidl_runtime_c__String__assign(&odom_frame_str, ODOM_FRAME_ID);
+  rosidl_runtime_c__String__assign(&imu_frame_str, IMU_FRAME_ID);
   rosidl_runtime_c__String__assign(&joint_name_seq.data[0], "joint_lf"); // motor 1
   rosidl_runtime_c__String__assign(&joint_name_seq.data[1], "joint_rf"); // motor 2
   rosidl_runtime_c__String__assign(&joint_name_seq.data[2], "joint_lb"); // motor 3
@@ -398,6 +396,7 @@ bool destroyEntities()
 
   rosidl_runtime_c__String__fini(&base_frame_str);
   rosidl_runtime_c__String__fini(&odom_frame_str);
+  rosidl_runtime_c__String__fini(&imu_frame_str);
   rosidl_runtime_c__String__Sequence__fini(&joint_name_seq);
   rosidl_runtime_c__double__Sequence__fini(&joint_vel_seq);
   rosidl_runtime_c__double__Sequence__fini(&joint_pos_seq);
@@ -524,8 +523,8 @@ void publishData()
   imu_msg  = imu.getData();
   imu_msg.header.stamp.sec = time_stamp.tv_sec;
   imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-  imu_msg.header.frame_id = base_frame_str;
-
+  imu_msg.header.frame_id = imu_frame_str;
+  
   // populate odom data
   odom_msg = odometry.getData();
   odom_msg.header.stamp.sec = time_stamp.tv_sec;
@@ -608,6 +607,14 @@ void flashLED(int n_times)
   delay(1000);
 }
 
+void setNeopixel(CRGB in_led)
+{
+  for(int i=0; i<NEOPIXEL_COUNT; i++)
+  {
+    neopixel[i] = in_led;
+  }
+}
+
 void getTeensyMAC(uint8_t *mac)
 {
   for(uint8_t by=0; by<2; by++)
@@ -617,13 +624,5 @@ void getTeensyMAC(uint8_t *mac)
   for(uint8_t by=0; by<4; by++)
   {
     mac[by+2]=(HW_OCOTP_MAC0 >> ((3-by)*8)) & 0xFF;
-  }
-}
-
-void setNeopixel(CRGB in_led)
-{
-  for(int i=0; i<NEOPIXEL_COUNT; i++)
-  {
-    neopixel[i] = in_led;
   }
 }
