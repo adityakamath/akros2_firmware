@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Aditya Kamath
+// Copyright (c) 2023 Aditya Kamath
 // Copyright (c) 2021 Juan Miguel Jimeno
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,12 +72,12 @@ rosidl_runtime_c__double__Sequence joint_pos_seq;
 rosidl_runtime_c__double__Sequence req_vel_seq;
 rosidl_runtime_c__double__Sequence req_pos_seq;
 
-rclc_executor_t    executor;
-rclc_support_t     support;
-rcl_init_options_t init_options;
-rcl_allocator_t    allocator;
-rcl_node_t         node;
-rcl_timer_t        timer;
+rclc_executor_t          executor;
+rclc_support_t           support;
+rcl_init_options_t       init_options;
+rcl_allocator_t          allocator;
+rcl_node_t               node;
+rcl_timer_t              timer;
 rclc_parameter_server_t  param_server;
 
 enum states
@@ -293,10 +293,7 @@ bool createEntities()
         .allow_undeclared_parameters = false,
         .low_mem_mode = true};
   
-  RCCHECK(rclc_parameter_server_init_with_option(
-          &param_server,
-          &node,
-          &param_options));
+  RCCHECK(rclc_parameter_server_init_with_option(&param_server, &node, &param_options));
 
   // create executor
   executor = rclc_executor_get_zero_initialized_executor();
@@ -443,10 +440,7 @@ void moveBase()
     }
 
     // get the required rpm for each motor based on required velocities, and base used
-    Kinematics::rpm required_rpm = kinematics.getRPM(
-                                    twist_msg.linear.x,
-                                    twist_msg.linear.y,
-                                    twist_msg.angular.z);
+    Kinematics::rpm required_rpm = kinematics.getRPM(twist_msg.linear.x, twist_msg.linear.y, twist_msg.angular.z);
 
     req_rpm[0] = required_rpm.motor1;
     req_rpm[1] = required_rpm.motor2;
@@ -558,8 +552,7 @@ void calculateOffset()
 struct timespec getTime()
 {
   struct timespec tp = {0};
-  // add time difference between uC time and ROS time to
-  // synchronize time with ROS
+  // add time difference between uC time and ROS time to synchronize time with ROS
   unsigned long long now = millis() + time_offset;
   tp.tv_sec = now / 1000;
   tp.tv_nsec = (now % 1000) * 1000000;
