@@ -78,8 +78,7 @@ rcl_init_options_t init_options;
 rcl_allocator_t    allocator;
 rcl_node_t         node;
 rcl_timer_t        timer;
-////rclc_parameter_server_t  param_server;
-////rclc_parameter_options_t param_options;
+rclc_parameter_server_t  param_server;
 
 enum states
 {
@@ -91,7 +90,6 @@ enum states
 
 float joint_rpm[NR_OF_JOINTS];
 float req_rpm[NR_OF_JOINTS];
-float smooth_pwm[NR_OF_JOINTS];
 
 CRGB neopixel[NEOPIXEL_COUNT];
 
@@ -208,29 +206,25 @@ void twistCallback(const void * msgin){ prev_cmd_time = millis(); }
 
 void modeCallback(const void * msgin){}
 
-// bool paramCallback(const Parameter * old_param, const Parameter * new_param, void * context)
-// {
-//   (void) context;
+bool paramCallback(const Parameter * old_param, const Parameter * new_param, void * context)
+{
+  if (old_param != NULL && new_param != NULL) 
+  {
+    if(strcmp(new_param->name.data, rpm_ratio_name) == 0){ rpm_ratio = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, kp_name) == 0){ kp = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
 
-//   if (old_param == NULL && new_param == NULL) {
-//     return false;
-//   }
-  
-//   // Get parameter values from parameter server
-//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, kp_name, &kp));
-//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, ki_name, &ki));
-//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, kd_name, &kd));
-//   RCSOFTCHECK(rclc_parameter_get_double(&param_server, rpm_ratio_name, &rpm_ratio));
+    kinematics.setMaxRPM(rpm_ratio);
+    motor1_pid.updateConstants(kp, ki, kd);
+    motor2_pid.updateConstants(kp, ki, kd);
+    motor3_pid.updateConstants(kp, ki, kd);
+    motor4_pid.updateConstants(kp, ki, kd);
 
-//   kinematics.setMaxRPM(rpm_ratio);
-
-//   motor1_pid.updateConstants(kp, ki, kd);
-//   motor2_pid.updateConstants(kp, ki, kd);
-//   motor3_pid.updateConstants(kp, ki, kd);
-//   motor4_pid.updateConstants(kp, ki, kd);
-
-//   return true;
-// }
+    return true;
+  }
+  else return false;
+}
 
 bool createEntities()
 {
@@ -292,25 +286,25 @@ bool createEntities()
           RCL_MS_TO_NS(timeout_ms),
           timerCallback));
 
-  // // create parameter server
-  // param_options = {
-  //       .notify_changed_over_dds = true,
-  //       .max_params = 8,
-  //       .allow_undeclared_parameters = false,
-  //       .low_mem_mode = false};
+  // create parameter server
+  rclc_parameter_options_t param_options = {
+        .notify_changed_over_dds = true,
+        .max_params = 4,
+        .allow_undeclared_parameters = false,
+        .low_mem_mode = true};
   
-  // RCCHECK(rclc_parameter_server_init_with_option(
-  //         &param_server,
-  //         &node,
-  //         &param_options));
-
-  //  RCCHECK(rclc_parameter_server_init_default(
-  //         &param_server,
-  //         &node));
+  RCCHECK(rclc_parameter_server_init_with_option(
+          &param_server,
+          &node,
+          &param_options));
 
   // create executor
   executor = rclc_executor_get_zero_initialized_executor();
-  RCCHECK(rclc_executor_init(&executor, &support.context, RCLC_EXECUTOR_PARAMETER_SERVER_HANDLES+3, & allocator));
+  RCCHECK(rclc_executor_init(&executor, &support.context, RCLC_EXECUTOR_PARAMETER_SERVER_HANDLES+3, &allocator));
+  RCCHECK(rclc_executor_add_parameter_server(
+          &executor,
+          &param_server,
+          paramCallback));
   RCCHECK(rclc_executor_add_subscription(
           &executor,
           &twist_subscriber,
@@ -324,22 +318,18 @@ bool createEntities()
           &modeCallback,
           ON_NEW_DATA));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
-  //RCCHECK(rclc_executor_add_parameter_server(
-  //        &executor,
-  //        &param_server,
-  //        paramCallback));
 
-  // // Add parameters to the server
-  // RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
-  // RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
-  // RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
-  // RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
+  // Add parameters to the server
+  RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
 
-  // // Set parameter default values
-  // RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
-  // RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
-  // RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
-  // RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
+  // Set parameter default values
+  RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
+  RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
+  RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
+  RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
 
   rosidl_runtime_c__String__init(&base_frame_str);
   rosidl_runtime_c__String__init(&odom_frame_str);
@@ -389,7 +379,7 @@ bool destroyEntities()
   rc += rcl_timer_fini(&timer);
   rc += rcl_subscription_fini(&twist_subscriber, &node);
   rc += rcl_subscription_fini(&mode_subscriber, &node);
-  //rc += rclc_parameter_server_fini(&param_server, &node);
+  rc += rclc_parameter_server_fini(&param_server, &node);
   rc += rcl_node_fini(&node);
   rc += rclc_support_fini(&support);
   rc += rcl_init_options_fini(&init_options);
@@ -412,9 +402,7 @@ bool destroyEntities()
 
 void fullStop()
 {
-  twist_msg.linear.x = 0.0;
-  twist_msg.linear.y = 0.0;
-  twist_msg.angular.z = 0.0;
+  twist_msg = {0.0};
 
   motor1_controller.brake();
   motor2_controller.brake();
@@ -430,7 +418,6 @@ void fullStop()
   {
     joint_rpm[i] = 0.0;
     req_rpm[i] = 0.0;
-    smooth_pwm[i] = 0.0;
   }
 }
 
@@ -441,10 +428,7 @@ void updateMode()
     setNeopixel(CRGB(255, 0, 0)); // STOP: Red
     fullStop();
   }
-  else
-  {
-    mode_msg.auto_t ? setNeopixel(CRGB(0, 55, 255)) : setNeopixel(CRGB(0, 255, 55)); // AUTO: Blue, TELEOP: Green
-  }
+  else mode_msg.auto_t ? setNeopixel(CRGB(0, 55, 255)) : setNeopixel(CRGB(0, 255, 55)); // AUTO: Blue, TELEOP: Green
   FastLED.show();
 }
 
@@ -455,9 +439,7 @@ void moveBase()
     // brake if there's no command received, or when it's only the first command sent
     if(((millis() - prev_cmd_time) >= 200))
     {
-      twist_msg.linear.x = 0.0;
-      twist_msg.linear.y = 0.0;
-      twist_msg.angular.z = 0.0;
+      twist_msg = {0.0};
     }
 
     // get the required rpm for each motor based on required velocities, and base used
@@ -484,6 +466,7 @@ void moveBase()
 
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
+    float smooth_pwm[NR_OF_JOINTS];
     for(int i=0; i<NR_OF_JOINTS; i++)
     {
       smooth_pwm[i] += (pwm_arr[i] - smooth_pwm[i])*SMOOTHING_CONST;
@@ -494,10 +477,7 @@ void moveBase()
     motor3_controller.spin(constrain(smooth_pwm[2], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
     motor4_controller.spin(constrain(smooth_pwm[3], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
   }
-  else
-  {
-    fullStop();
-  }
+  else fullStop();
 
   Kinematics::velocities current_vel = kinematics.getVelocities(
                                         joint_rpm[0],
