@@ -23,6 +23,19 @@
 #define BASE_FRAME_ID "base_link"
 #define ODOM_FRAME_ID "enc_odom_frame"
 #define IMU_FRAME_ID  "imu_frame"
+#define MOTOR1 "joint_lf"
+#define MOTOR2 "joint_rf"
+#define MOTOR3 "joint_lb"
+#define MOTOR4 "joint_rb"
+
+//CONTROL
+#define K_P 0.80        // P constant
+#define K_I 0.60        // I constant
+#define K_D 0.40        // D constant
+#define UPDATE_FREQ 50  // Control timer frequency in Hz (50Hz = 20ms)
+#define UROS_PING_TIMEOUT 100 //ms
+#define WAITING_AGENT_TIMEOUT 500 //ms
+#define CONNECTED_TIMEOUT 200 //ms
 
 //TEENSY:
 #define TRANSPORT_SERIAL // TRANSPORT_SERIAL, TRANSPORT_ETHERNET
@@ -48,12 +61,6 @@
 //#define USE_GENERIC_2_IN_MOTOR_DRIVER       // Motor drivers with 2 Direction Pins(INA, INB) and 1 PWM(ENABLE) pin ie. L298, L293, VNH5019
 //#define USE_GENERIC_1_IN_MOTOR_DRIVER       // Motor drivers with 1 Direction Pin(INA) and 1 PWM(ENABLE) pin.
 //#define USE_ESC_MOTOR_DRIVER                // Motor ESC for brushless motors
-
-//PID
-#define K_P 0.80        // P constant
-#define K_I 0.60        // I constant
-#define K_D 0.40        // D constant
-#define UPDATE_FREQ 50  // Control timer frequency in Hz (50Hz = 20ms)
 
 //ROBOT SPECS:
 #define MOTOR_MAX_RPM 180                   // motor's max RPM

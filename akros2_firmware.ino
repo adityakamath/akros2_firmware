@@ -18,6 +18,8 @@
 
 #include "akros2_base_config.h"
 #include <micro_ros_arduino.h>
+#include <micro_ros_utilities/string_utilities.h>
+#include <micro_ros_utilities/type_utilities.h>
 
 #include <rcl/rcl.h>
 #include <rclc/rclc.h>
@@ -29,10 +31,6 @@
 #include <nav_msgs/msg/odometry.h>
 #include <sensor_msgs/msg/imu.h>
 #include <sensor_msgs/msg/joint_state.h>
-
-#include <rosidl_runtime_c/string.h>
-#include <rosidl_runtime_c/string_functions.h>
-#include <rosidl_runtime_c/primitives_sequence_functions.h>
 
 #include "src/encoder/encoder.h"
 #include "src/motor/motor.h"
@@ -62,15 +60,6 @@ nav_msgs__msg__Odometry      odom_msg;
 sensor_msgs__msg__Imu        imu_msg;
 sensor_msgs__msg__JointState joint_state_msg;
 sensor_msgs__msg__JointState req_state_msg;
-
-rosidl_runtime_c__String base_frame_str;
-rosidl_runtime_c__String odom_frame_str;
-rosidl_runtime_c__String imu_frame_str;
-rosidl_runtime_c__String__Sequence joint_name_seq;
-rosidl_runtime_c__double__Sequence joint_vel_seq;
-rosidl_runtime_c__double__Sequence joint_pos_seq;
-rosidl_runtime_c__double__Sequence req_vel_seq;
-rosidl_runtime_c__double__Sequence req_pos_seq;
 
 rclc_executor_t          executor;
 rclc_support_t           support;
@@ -137,19 +126,23 @@ unsigned long prev_odom_update = 0;
 
 void setup()
 {
+  // define LEDs
   pinMode(LED_PIN, OUTPUT);
   FastLED.addLeds<NEOPIXEL, NEOPIXEL_PIN>(neopixel, NEOPIXEL_COUNT);
 
+  // initialize IMU
   bool imu_ok = imu.init();
   if(!imu_ok)
   {
     while(1){ flashLED(3); }
   }
 
+  // set serial transport if defined in config (default)
   #ifdef TRANSPORT_SERIAL
     set_microros_transports();
   #endif
 
+  // set UDP/ethernet transport if defined in config
   #ifdef TRANSPORT_ETHERNET
     byte mac[6];
     getTeensyMAC(mac);
@@ -160,24 +153,26 @@ void setup()
     set_microros_native_ethernet_udp_transports(mac, teensy_ip, agent_ip, 9999);
   #endif
 
-  setNeopixel(CRGB(0, 255, 255)); // STARTUP: Cyan
+  // set Neopixels to Cyan : STARTUP
+  setNeopixel(CRGB(0, 255, 255));
   FastLED.show();
 }
 
 void loop() 
 {
+  // state machine
   switch (state)
   {
     case WAITING_AGENT:
-      EXECUTE_EVERY_N_MS(500, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_AVAILABLE : WAITING_AGENT;);
+      EXECUTE_EVERY_N_MS(WAITING_AGENT_TIMEOUT, state = (RMW_RET_OK == rmw_uros_ping_agent(UROS_PING_TIMEOUT, 1)) ? AGENT_AVAILABLE : WAITING_AGENT;);
       break;
     case AGENT_AVAILABLE:
       state = (true == createEntities()) ? AGENT_CONNECTED : WAITING_AGENT;
       if (state == WAITING_AGENT){ destroyEntities(); }
       break;
     case AGENT_CONNECTED:
-      EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
-      if (state == AGENT_CONNECTED){ rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100)); }
+      EXECUTE_EVERY_N_MS(CONNECTED_TIMEOUT, state = (RMW_RET_OK == rmw_uros_ping_agent(UROS_PING_TIMEOUT, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
+      if (state == AGENT_CONNECTED){ rclc_executor_spin_some(&executor, RCL_MS_TO_NS(UROS_PING_TIMEOUT)); }
       break;
     case AGENT_DISCONNECTED:
       destroyEntities();
@@ -187,48 +182,13 @@ void loop()
       break;
   }
 
+  // turn LED on when agent is not connected, else off
   state == AGENT_CONNECTED ? digitalWrite(LED_PIN, LOW) : digitalWrite(LED_PIN, HIGH);
-}
-
-void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
-{
-  (void) last_call_time;
-  if (timer != NULL)
-  {
-    updateMode();
-    FastLED.show();
-    moveBase();
-    publishData();
-  }
-}
-
-void twistCallback(const void * msgin){ prev_cmd_time = millis(); }
-
-void modeCallback(const void * msgin){}
-
-bool paramCallback(const Parameter * old_param, const Parameter * new_param, void * context)
-{
-  if (old_param != NULL && new_param != NULL) 
-  {
-    if(strcmp(new_param->name.data, rpm_ratio_name) == 0){ rpm_ratio = new_param->value.double_value; }
-    else if(strcmp(new_param->name.data, kp_name) == 0){ kp = new_param->value.double_value; }
-    else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
-    else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
-
-    kinematics.setMaxRPM(rpm_ratio);
-    motor1_pid.updateConstants(kp, ki, kd);
-    motor2_pid.updateConstants(kp, ki, kd);
-    motor3_pid.updateConstants(kp, ki, kd);
-    motor4_pid.updateConstants(kp, ki, kd);
-
-    return true;
-  }
-  else return false;
 }
 
 bool createEntities()
 {
-  //create node
+  // create and initialize node
   allocator = rcl_get_default_allocator();
   init_options = rcl_get_zero_initialized_init_options();
   RCCHECK(rcl_init_options_init(&init_options, allocator));
@@ -258,7 +218,7 @@ bool createEntities()
           "joint_states"));
 
   // create combined required state publisher
-  RCCHECK(rclc_publisher_init_default(
+  RCCHECK(rclc_publisher_init_best_effort(
           &req_state_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
@@ -293,9 +253,10 @@ bool createEntities()
         .allow_undeclared_parameters = false,
         .low_mem_mode = true};
   
+  // initialize parameter server
   RCCHECK(rclc_parameter_server_init_with_option(&param_server, &node, &param_options));
 
-  // create executor
+  // create executor, and add subscribers, parameter server, timer
   executor = rclc_executor_get_zero_initialized_executor();
   RCCHECK(rclc_executor_init(&executor, &support.context, RCLC_EXECUTOR_PARAMETER_SERVER_HANDLES+3, &allocator));
   RCCHECK(rclc_executor_add_parameter_server(
@@ -316,45 +277,56 @@ bool createEntities()
           ON_NEW_DATA));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
 
-  // Add parameters to the server
+  // add parameters to the server
   RCCHECK(rclc_add_parameter(&param_server, kp_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
 
-  // Set parameter default values
+  // set parameter default values
   RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
   RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
   RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
   RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
 
-  rosidl_runtime_c__String__init(&base_frame_str);
-  rosidl_runtime_c__String__init(&odom_frame_str);
-  rosidl_runtime_c__String__init(&imu_frame_str);
-  rosidl_runtime_c__String__Sequence__init(&joint_name_seq, NR_OF_JOINTS);
-  rosidl_runtime_c__double__Sequence__init(&joint_vel_seq, NR_OF_JOINTS);
-  rosidl_runtime_c__double__Sequence__init(&joint_pos_seq, NR_OF_JOINTS);
-  rosidl_runtime_c__double__Sequence__init(&req_vel_seq, NR_OF_JOINTS);
-  rosidl_runtime_c__double__Sequence__init(&req_pos_seq, NR_OF_JOINTS);
-
-  // populate frame_id and joint names
-  rosidl_runtime_c__String__assign(&base_frame_str, BASE_FRAME_ID);
-  rosidl_runtime_c__String__assign(&odom_frame_str, ODOM_FRAME_ID);
-  rosidl_runtime_c__String__assign(&imu_frame_str, IMU_FRAME_ID);
-  rosidl_runtime_c__String__assign(&joint_name_seq.data[0], "joint_lf"); // motor 1
-  rosidl_runtime_c__String__assign(&joint_name_seq.data[1], "joint_rf"); // motor 2
-  rosidl_runtime_c__String__assign(&joint_name_seq.data[2], "joint_lb"); // motor 3
-  rosidl_runtime_c__String__assign(&joint_name_seq.data[3], "joint_rb"); // motor 4
-
-  for(int i=0; i<NR_OF_JOINTS; i++)
+  // initialize measured joint state message memory
+  if(!micro_ros_utilities_create_message_memory(
+    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+    &joint_state_msg,
+    (micro_ros_utilities_memory_conf_t) {})
+    )
   {
-    joint_rpm[i] = 0.0;
-    joint_vel_seq.data[i] = 0.0;
-    joint_pos_seq.data[i] = 0.0;
-    req_rpm[i] = 0.0;
-    req_vel_seq.data[i] = 0.0;
-    req_pos_seq.data[i] = 0.0;
+    errorLoop();
   }
+
+  // initialize required joint state message memory
+  if(!micro_ros_utilities_create_message_memory(
+    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
+    &req_state_msg,
+    (micro_ros_utilities_memory_conf_t) {})
+    )
+  {
+    errorLoop();
+  }
+
+  // populate fixed message fields - frame IDs and joint names
+  imu_msg.header.frame_id = micro_ros_string_utilities_set(imu_msg.header.frame_id, IMU_FRAME_ID); //imu_frame_str;
+  odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, ODOM_FRAME_ID); //odom_frame_str;
+  
+  joint_state_msg.header.frame_id = micro_ros_string_utilities_set(joint_state_msg.header.frame_id, BASE_FRAME_ID); //base_frame_str;
+  joint_state_msg.name.data[0] = micro_ros_string_utilities_set(joint_state_msg.name.data[0], MOTOR1); //joint_name_seq;
+  joint_state_msg.name.data[1] = micro_ros_string_utilities_set(joint_state_msg.name.data[1], MOTOR2);
+  joint_state_msg.name.data[2] = micro_ros_string_utilities_set(joint_state_msg.name.data[2], MOTOR3);
+  joint_state_msg.name.data[3] = micro_ros_string_utilities_set(joint_state_msg.name.data[3], MOTOR4);
+  
+  req_state_msg.header.frame_id = micro_ros_string_utilities_set(req_state_msg.header.frame_id, BASE_FRAME_ID); //base_frame_str;
+  req_state_msg.name.data[0] = micro_ros_string_utilities_set(req_state_msg.name.data[0], MOTOR1); // joint_name_seq;
+  req_state_msg.name.data[1] = micro_ros_string_utilities_set(req_state_msg.name.data[1], MOTOR1);
+  req_state_msg.name.data[2] = micro_ros_string_utilities_set(req_state_msg.name.data[2], MOTOR1);
+  req_state_msg.name.data[3] = micro_ros_string_utilities_set(req_state_msg.name.data[3], MOTOR1);
+
+  // set joint states to 0
+  stop();
 
   // synchronize time with the agent
   RCCHECK(rmw_uros_sync_session(10));
@@ -365,6 +337,7 @@ bool createEntities()
 
 bool destroyEntities()
 {
+  // delete micro-ROS entities
   rmw_context_t * rmw_context = rcl_context_get_rmw_context(&support.context);
   (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
@@ -381,59 +354,72 @@ bool destroyEntities()
   rc += rclc_support_fini(&support);
   rc += rcl_init_options_fini(&init_options);
 
-  rosidl_runtime_c__String__fini(&base_frame_str);
-  rosidl_runtime_c__String__fini(&odom_frame_str);
-  rosidl_runtime_c__String__fini(&imu_frame_str);
-  rosidl_runtime_c__String__Sequence__fini(&joint_name_seq);
-  rosidl_runtime_c__double__Sequence__fini(&joint_vel_seq);
-  rosidl_runtime_c__double__Sequence__fini(&joint_pos_seq);
-  rosidl_runtime_c__double__Sequence__fini(&req_vel_seq);
-  rosidl_runtime_c__double__Sequence__fini(&req_pos_seq);
-
+  // stop robot
   fullStop();
-  setNeopixel(CRGB(0, 255, 255)); // DISCONNECTED: Cyan
+
+  // set Neopixels to Cyan : DISCONNECTED
+  setNeopixel(CRGB(0, 255, 255));
   FastLED.show();
 
   return (rc != RCL_RET_OK) ? false : true;
 }
 
-void fullStop()
+void timerCallback(rcl_timer_t * timer, int64_t last_call_time)
 {
-  twist_msg = {0.0};
-
-  motor1_controller.brake();
-  motor2_controller.brake();
-  motor3_controller.brake();
-  motor4_controller.brake();
-
-  motor1_pid.resetAll();
-  motor2_pid.resetAll();
-  motor3_pid.resetAll();
-  motor4_pid.resetAll();
-
-  for(int i=0; i<NR_OF_JOINTS; i++)
+  (void) last_call_time;
+  if (timer != NULL)
   {
-    joint_rpm[i] = 0.0;
-    req_rpm[i] = 0.0;
+    updateMode();
+    moveBase();
+    publishData();
   }
+}
+
+void twistCallback(const void * msgin){ prev_cmd_time = millis(); }
+
+void modeCallback(const void * msgin){}
+
+bool paramCallback(const Parameter * old_param, const Parameter * new_param, void * context)
+{
+  // check if an existing parameter is updated
+  if (old_param != NULL && new_param != NULL) 
+  {
+    // set changed parameter value
+    if(strcmp(new_param->name.data, rpm_ratio_name) == 0){ rpm_ratio = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, kp_name) == 0){ kp = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
+
+    // update PID constants and max RPM - use existing values for unchanged parameters
+    kinematics.setMaxRPM(rpm_ratio);
+    motor1_pid.updateConstants(kp, ki, kd);
+    motor2_pid.updateConstants(kp, ki, kd);
+    motor3_pid.updateConstants(kp, ki, kd);
+    motor4_pid.updateConstants(kp, ki, kd);
+
+    return true;
+  }
+  else return false; // reject loading of new parameters or deletion of existing parameters
 }
 
 void updateMode()
 {
   if (mode_msg.estop)
   {
-    setNeopixel(CRGB(255, 0, 0)); // STOP: Red
+    // set Neopixels to Cyan : STOP
+    setNeopixel(CRGB(255, 0, 0));
     fullStop();
   }
-  else mode_msg.auto_t ? setNeopixel(CRGB(0, 55, 255)) : setNeopixel(CRGB(0, 255, 55)); // AUTO: Blue, TELEOP: Green
+  else mode_msg.auto_t ? setNeopixel(CRGB(0, 55, 255)) : setNeopixel(CRGB(0, 255, 55)); // set Neopixels to Blue : AUTO, Green : TELEOP
   FastLED.show();
 }
 
 void moveBase()
 {
+  // check if relevant twist fields are not all zero
   if(twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0)
   {
-    // brake if there's no command received, or when it's only the first command sent
+    // set twist to 0 if no command received, or when it's only the first command sent
     if(((millis() - prev_cmd_time) >= 200))
     {
       twist_msg = {0.0};
@@ -447,17 +433,20 @@ void moveBase()
     req_rpm[2] = required_rpm.motor3;
     req_rpm[3] = required_rpm.motor4;
     
+    // get measured RPM for each motor
     joint_rpm[0] = motor1_encoder.getRPM();
     joint_rpm[1] = motor2_encoder.getRPM();
     joint_rpm[2] = motor3_encoder.getRPM();
     joint_rpm[3] = motor4_encoder.getRPM();
 
+    // compute expected PWM for each motor
     float pwm_arr[NR_OF_JOINTS];
     pwm_arr[0] = motor1_pid.compute(req_rpm[0], joint_rpm[0]);
     pwm_arr[1] = motor2_pid.compute(req_rpm[1], joint_rpm[1]);
     pwm_arr[2] = motor3_pid.compute(req_rpm[2], joint_rpm[2]);
     pwm_arr[3] = motor4_pid.compute(req_rpm[3], joint_rpm[3]);
 
+    // smoothing filter
     // the required rpm is capped at -/+ MAX_RPM to prevent the PID from having too much error
     // the PWM value sent to the motor driver is the calculated PID based on required RPM vs measured RPM
     float smooth_pwm[NR_OF_JOINTS];
@@ -466,6 +455,7 @@ void moveBase()
       smooth_pwm[i] += (pwm_arr[i] - smooth_pwm[i])*SMOOTHING_CONST;
     }
 
+    // spin motors according to smoothed pwm
     motor1_controller.spin(constrain(smooth_pwm[0], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
     motor2_controller.spin(constrain(smooth_pwm[1], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
     motor3_controller.spin(constrain(smooth_pwm[2], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
@@ -473,12 +463,13 @@ void moveBase()
   }
   else fullStop();
 
+  // get current velocities of the robot
   Kinematics::velocities current_vel = kinematics.getVelocities(
                                         joint_rpm[0],
                                         joint_rpm[1],
                                         joint_rpm[2],
                                         joint_rpm[3]);
-
+  // update odometry
   unsigned long now = millis();
   float vel_dt = (now - prev_odom_update) / 1000.0;
   prev_odom_update = now;
@@ -491,49 +482,40 @@ void moveBase()
 
 void publishData()
 {
+  // get current time
   struct timespec time_stamp = getTime();
 
   // populate IMU data
   imu_msg  = imu.getData();
   imu_msg.header.stamp.sec = time_stamp.tv_sec;
   imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-  imu_msg.header.frame_id = imu_frame_str;
   
   // populate odom data
   odom_msg = odometry.getData();
   odom_msg.header.stamp.sec = time_stamp.tv_sec;
   odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-  odom_msg.header.frame_id = odom_frame_str;
-
-  // populate required and measured joint states: velocities (rad/s) and positions (rads, in range[-pi, pi])
-  for(int i=0; i<NR_OF_JOINTS; i++)
-  {
-    joint_vel_seq.data[i] = joint_rpm[i] * M_PI * 2 / 60; // rpm to rad/s
-    joint_pos_seq.data[i] += joint_vel_seq.data[i] / UPDATE_FREQ;  // rad/s to rad
-    if (joint_pos_seq.data[i] > M_PI){ joint_pos_seq.data[i] = -1.0 * M_PI; }
-    if (joint_pos_seq.data[i] < -1.0 * M_PI){ joint_pos_seq.data[i] = M_PI; }
-
-    req_vel_seq.data[i] = req_rpm[i] * M_PI * 2 / 60; // rpm to rad/s
-    req_pos_seq.data[i] += req_vel_seq.data[i] / UPDATE_FREQ;  // rad/s to rad
-    if (req_pos_seq.data[i] > M_PI){ req_pos_seq.data[i] = -1.0 * M_PI; }
-    if (req_pos_seq.data[i] < -1.0 * M_PI){ req_pos_seq.data[i] = M_PI; }    
-  }
 
   // populate measured joint state data
   joint_state_msg.header.stamp.sec = time_stamp.tv_sec;
   joint_state_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-  joint_state_msg.header.frame_id = base_frame_str;
-  joint_state_msg.name = joint_name_seq;
-  joint_state_msg.velocity = joint_vel_seq;
-  joint_state_msg.position = joint_pos_seq;
 
   // populate required joint state data
   req_state_msg.header.stamp.sec = time_stamp.tv_sec;
   req_state_msg.header.stamp.nanosec = time_stamp.tv_nsec;
-  req_state_msg.header.frame_id = base_frame_str;
-  req_state_msg.name = joint_name_seq;
-  req_state_msg.velocity = req_vel_seq;
-  req_state_msg.position = req_pos_seq;  
+
+  // populate required and measured joint states: velocities (rad/s) and positions (rads, in range[-pi, pi])
+  for(int i=0; i<NR_OF_JOINTS; i++)
+  {
+    joint_state_msg.velocity.data[i] = joint_rpm[i] * M_PI * 2 / 60; // rpm to rad/s
+    joint_state_msg.position.data[i] += joint_state_msg.velocity.data[i] / UPDATE_FREQ;  // rad/s to rad
+    if (joint_state_msg.position.data[i] > M_PI){ joint_state_msg.position.data[i] = -1.0 * M_PI; }
+    if (joint_state_msg.position.data[i] < -1.0 * M_PI){ joint_state_msg.position.data[i] = M_PI; }
+
+    req_state_msg.velocity.data[i] = req_rpm[i] * M_PI * 2 / 60; // rpm to rad/s
+    req_state_msg.position.data[i] += req_state_msg.velocity.data[i] / UPDATE_FREQ;  // rad/s to rad
+    if (req_state_msg.position.data[i] > M_PI){ req_state_msg.position.data[i] = -1.0 * M_PI; }
+    if (req_state_msg.position.data[i] < -1.0 * M_PI){ req_state_msg.position.data[i] = M_PI; }    
+  } 
   
   // publish
   RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
@@ -542,8 +524,40 @@ void publishData()
   RCSOFTCHECK(rcl_publish(&req_state_publisher, &req_state_msg, NULL));
 }
 
+void stop()
+{
+  // set all (required and measured) joint states to 0
+  for(int i=0; i<NR_OF_JOINTS; i++)
+  {
+    joint_rpm[i] = 0.0;
+    req_rpm[i] = 0.0;
+  }
+}
+
+void fullStop()
+{
+  // set twist to 0
+  twist_msg = {0.0};
+
+  // brake all motors
+  motor1_controller.brake();
+  motor2_controller.brake();
+  motor3_controller.brake();
+  motor4_controller.brake();
+
+  // reset all PID controllers
+  motor1_pid.resetAll();
+  motor2_pid.resetAll();
+  motor3_pid.resetAll();
+  motor4_pid.resetAll();
+
+  // set all joint states to 0
+  stop();
+}
+
 void calculateOffset()
 {
+  // calculate offset between uC time and ROS time
   unsigned long now = millis();
   unsigned long long ros_time_ms = rmw_uros_epoch_millis();
   time_offset = ros_time_ms - now;
@@ -551,17 +565,17 @@ void calculateOffset()
 
 struct timespec getTime()
 {
-  struct timespec tp = {0};
   // add time difference between uC time and ROS time to synchronize time with ROS
+  struct timespec tp = {0};
   unsigned long long now = millis() + time_offset;
   tp.tv_sec = now / 1000;
   tp.tv_nsec = (now % 1000) * 1000000;
-
   return tp;
 }
 
 void errorLoop()
 {
+  // flash LED twice till the microcontroller is reset
   while(1)
   {
     flashLED(2);
@@ -570,6 +584,7 @@ void errorLoop()
 
 void flashLED(int n_times)
 {
+  // flash LED a given number of times
   for(int i=0; i<n_times; i++)
   {
     digitalWrite(LED_PIN, HIGH);
@@ -582,6 +597,7 @@ void flashLED(int n_times)
 
 void setNeopixel(CRGB in_led)
 {
+  // set colors for all Neopixel LEDs
   for(int i=0; i<NEOPIXEL_COUNT; i++)
   {
     neopixel[i] = in_led;
@@ -590,6 +606,7 @@ void setNeopixel(CRGB in_led)
 
 void getTeensyMAC(uint8_t *mac)
 {
+  // get factory defined MAC address of the Teensy (for UDP/Ethernet transport)
   for(uint8_t by=0; by<2; by++)
   {
     mac[by]=(HW_OCOTP_MAC1 >> ((1-by)*8)) & 0xFF;
