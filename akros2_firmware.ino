@@ -197,28 +197,28 @@ bool createEntities()
   RCCHECK(rclc_node_init_default(&node, NODE, NAMESPACE, &support));
 
   // create odometry publisher
-  RCCHECK(rclc_publisher_init_default(
+  RCSOFTCHECK(rclc_publisher_init_default(
           &odom_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
           "odom"));
 
   // create imu publisher
-  RCCHECK(rclc_publisher_init_default(
+  RCSOFTCHECK(rclc_publisher_init_default(
           &imu_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
           "imu"));
 
   // create combined measured joint state publisher
-  RCCHECK(rclc_publisher_init_default(
+  RCSOFTCHECK(rclc_publisher_init_default(
           &joint_state_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
           "joint_states"));
 
   // create combined required state publisher
-  RCCHECK(rclc_publisher_init_best_effort(
+  RCSOFTCHECK(rclc_publisher_init_best_effort(
           &req_state_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
@@ -290,24 +290,16 @@ bool createEntities()
   RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
 
   // initialize measured joint state message memory
-  if(!micro_ros_utilities_create_message_memory(
+  micro_ros_utilities_create_message_memory(
     ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
     &joint_state_msg,
-    (micro_ros_utilities_memory_conf_t) {})
-    )
-  {
-    errorLoop();
-  }
-
+    (micro_ros_utilities_memory_conf_t) {});
+  
   // initialize required joint state message memory
-  if(!micro_ros_utilities_create_message_memory(
+  micro_ros_utilities_create_message_memory(
     ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
     &req_state_msg,
-    (micro_ros_utilities_memory_conf_t) {})
-    )
-  {
-    errorLoop();
-  }
+    (micro_ros_utilities_memory_conf_t) {});
 
   // populate fixed message fields - frame IDs and joint names
   imu_msg.header.frame_id = micro_ros_string_utilities_set(imu_msg.header.frame_id, IMU_FRAME_ID); //imu_frame_str;
