@@ -301,21 +301,25 @@ bool createEntities()
     &req_state_msg,
     (micro_ros_utilities_memory_conf_t) {});
 
-  // populate fixed message fields - frame IDs and joint names
-  imu_msg.header.frame_id = micro_ros_string_utilities_set(imu_msg.header.frame_id, IMU_FRAME_ID); //imu_frame_str;
-  odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, ODOM_FRAME_ID); //odom_frame_str;
-  
-  joint_state_msg.header.frame_id = micro_ros_string_utilities_set(joint_state_msg.header.frame_id, BASE_FRAME_ID); //base_frame_str;
-  joint_state_msg.name.data[0] = micro_ros_string_utilities_set(joint_state_msg.name.data[0], MOTOR1); //joint_name_seq;
+  // populate fixed message fields - frame IDs for IMU and Odom
+  imu_msg.header.frame_id = micro_ros_string_utilities_set(imu_msg.header.frame_id, IMU_FRAME_ID);
+  odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, ODOM_FRAME_ID);
+
+  // populate fixed message fields - size, frame ID and joint names for measured joint state
+  joint_state_msg.name.size = joint_state_msg.position.size = joint_state_msg.velocity.size = NR_OF_JOINTS;
+  joint_state_msg.header.frame_id = micro_ros_string_utilities_set(joint_state_msg.header.frame_id, BASE_FRAME_ID); 
+  joint_state_msg.name.data[0] = micro_ros_string_utilities_set(joint_state_msg.name.data[0], MOTOR1);
   joint_state_msg.name.data[1] = micro_ros_string_utilities_set(joint_state_msg.name.data[1], MOTOR2);
   joint_state_msg.name.data[2] = micro_ros_string_utilities_set(joint_state_msg.name.data[2], MOTOR3);
   joint_state_msg.name.data[3] = micro_ros_string_utilities_set(joint_state_msg.name.data[3], MOTOR4);
-  
-  req_state_msg.header.frame_id = micro_ros_string_utilities_set(req_state_msg.header.frame_id, BASE_FRAME_ID); //base_frame_str;
-  req_state_msg.name.data[0] = micro_ros_string_utilities_set(req_state_msg.name.data[0], MOTOR1); // joint_name_seq;
-  req_state_msg.name.data[1] = micro_ros_string_utilities_set(req_state_msg.name.data[1], MOTOR1);
-  req_state_msg.name.data[2] = micro_ros_string_utilities_set(req_state_msg.name.data[2], MOTOR1);
-  req_state_msg.name.data[3] = micro_ros_string_utilities_set(req_state_msg.name.data[3], MOTOR1);
+
+  // populate fixed message fields - size, frame ID and joint names for required joint state
+  req_state_msg.name.size = req_state_msg.position.size = req_state_msg.velocity.size = NR_OF_JOINTS;
+  req_state_msg.header.frame_id = micro_ros_string_utilities_set(req_state_msg.header.frame_id, BASE_FRAME_ID);
+  req_state_msg.name.data[0] = micro_ros_string_utilities_set(req_state_msg.name.data[0], MOTOR1);
+  req_state_msg.name.data[1] = micro_ros_string_utilities_set(req_state_msg.name.data[1], MOTOR2);
+  req_state_msg.name.data[2] = micro_ros_string_utilities_set(req_state_msg.name.data[2], MOTOR3);
+  req_state_msg.name.data[3] = micro_ros_string_utilities_set(req_state_msg.name.data[3], MOTOR4);
 
   // set joint states to 0
   stop();
