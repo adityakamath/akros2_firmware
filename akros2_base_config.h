@@ -19,7 +19,7 @@
 //ROS:
 #define ROS_DOMAIN_ID 0
 #define NODE "base_node"
-#define NAMESPACE "drive"
+#define NAMESPACE ""
 #define BASE_FRAME_ID "base_link"
 #define ODOM_FRAME_ID "enc_odom_frame"
 #define IMU_FRAME_ID  "imu_frame"
