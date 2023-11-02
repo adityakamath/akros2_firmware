@@ -70,7 +70,7 @@
 #define MOTOR_OPERATING_VOLTAGE 12          // motor's operating voltage (used to calculate max RPM)
 #define MOTOR_POWER_MAX_VOLTAGE 9           // max voltage of the motor's power source (used to calculate max RPM)
 #define MOTOR_POWER_MEASURED_VOLTAGE 9      // current voltage reading of the power connected to the motor (used for calibration)
-#define WHEEL_DIAMETER 0.0800               // wheel diameter in meters
+#define WHEEL_DIAMETER 0.0770               // wheel diameter in meters (Manufacturer diameter = 8cm, CAD diameter = 7.2cm, Actual diameter = 7.7cm)
 #define LR_WHEELS_DISTANCE 0.210            // distance between left and right wheels
 #define PWM_BITS 8                          // PWM Resolution of the microcontroller
 #define PWM_FREQUENCY 20000                 // PWM Frequency for motor driver
