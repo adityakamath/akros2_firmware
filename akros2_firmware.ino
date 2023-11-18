@@ -110,15 +110,17 @@ Kinematics kinematics(
 Odometry odometry;
 IMU imu;
 
-const char * kp_name        = "kp";
-const char * ki_name        = "ki";
-const char * kd_name        = "kd";
-const char * rpm_ratio_name = "scale";
+const char * kp_name         = "kp";
+const char * ki_name         = "ki";
+const char * kd_name         = "kd";
+const char * rpm_ratio_name  = "scale";
+const char * ned_to_enu_name = "ned_to_enu"
 
 double kp = K_P;
 double ki = K_I;
 double kd = K_D;
 double rpm_ratio = MAX_RPM_RATIO;
+bool ned_to_enu = NED_TO_ENU;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -282,12 +284,14 @@ bool createEntities()
   RCCHECK(rclc_add_parameter(&param_server, ki_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
+  RCCHECK(rclc_add_parameter(&param_server, ned_to_enu_name, RCLC_PARAMETER_BOOL));
 
   // set parameter default values
   RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
   RCCHECK(rclc_parameter_set_double(&param_server, ki_name, K_I));
   RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
   RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
+  RCCHECK(rclc_parameter_set_bool(&param_server, ned_to_enu_name, NED_TO_ENU));
 
   // initialize measured joint state message memory
   micro_ros_utilities_create_message_memory(
@@ -385,6 +389,7 @@ bool paramCallback(const Parameter * old_param, const Parameter * new_param, voi
     else if(strcmp(new_param->name.data, kp_name) == 0){ kp = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, ned_to_enu_name) == 0){ ned_to_enu = new_param->value.double_value; }
 
     // update PID constants and max RPM - use existing values for unchanged parameters
     kinematics.setMaxRPM(rpm_ratio);
@@ -482,7 +487,7 @@ void publishData()
   struct timespec time_stamp = getTime();
 
   // populate IMU data
-  imu_msg  = imu.getData();
+  imu_msg  = imu.getData(ned_to_enu);
   imu_msg.header.stamp.sec = time_stamp.tv_sec;
   imu_msg.header.stamp.nanosec = time_stamp.tv_nsec;
   
