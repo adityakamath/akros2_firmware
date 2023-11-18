@@ -74,7 +74,7 @@ class IMUInterface
             return sensor_ok;
         }
 
-        sensor_msgs__msg__Imu getData()
+        sensor_msgs__msg__Imu getData(bool ned_to_enu)
         {
             imu_msg_.angular_velocity = readGyroscope();
             imu_msg_.angular_velocity.x -= gyro_cal_.x;
@@ -106,6 +106,26 @@ class IMUInterface
                     imu_msg_.linear_acceleration.x,
                     imu_msg_.linear_acceleration.y,
                     imu_msg_.linear_acceleration.z);
+
+            sensor_msgs__msg__Imu tmp_msg = imu_msg_;
+            
+            if(ned_to_enu)
+            {
+                # Convert NED to ENU: 
+                #     body-fixed NED → ROS ENU: (x y z)→(x -y -z) or (w x y z)→(x -y -z w)
+                #     local      NED → ROS ENU: (x y z)→(y x -z)  or (w x y z)→(y x -z w)
+
+                tmp_msg.angular_velocity.x = imu_msg_.angular_velocity.y;
+                tmp_msg.angular_velocity.y = imu_msg_.angular_velocity.x;
+                tmp_msg.angular_velocity.z = -1 * imu_msg_.angular_velocity.z;
+                
+                tmp_msg.linear_acceleration.x = imu_msg_.linear_acceleration.y;
+                tmp_msg.linear_acceleration.y = imu_msg_.linear_acceleration.x;
+                tmp_msg.linear_acceleration.z = -1 * imu_msg_.linear_acceleration.z;
+            }
+            
+            imu_msg_.angular_velocity = tmp_msg.angular_velocity;
+            imu_msg_.linear_acceleration = tmp_msg.linear_acceleration;
 
             return imu_msg_;
         }
