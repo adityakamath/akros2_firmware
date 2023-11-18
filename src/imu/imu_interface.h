@@ -111,10 +111,7 @@ class IMUInterface
             
             if(ned_to_enu)
             {
-                # Convert NED to ENU: 
-                #     body-fixed NED → ROS ENU: (x y z)→(x -y -z) or (w x y z)→(x -y -z w)
-                #     local      NED → ROS ENU: (x y z)→(y x -z)  or (w x y z)→(y x -z w)
-
+                // Convert NED → ENU: (x y z) → (y x -z)  or (w x y z) → (y x -z w)
                 tmp_msg.angular_velocity.x = imu_msg_.angular_velocity.y;
                 tmp_msg.angular_velocity.y = imu_msg_.angular_velocity.x;
                 tmp_msg.angular_velocity.z = -1 * imu_msg_.angular_velocity.z;
