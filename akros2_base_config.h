@@ -21,7 +21,7 @@
 #define NODE "base_node"
 #define NAMESPACE ""
 #define BASE_FRAME_ID "base_link"
-#define ODOM_FRAME_ID "enc_odom_frame"
+#define ODOM_FRAME_ID "enc_odom"
 #define IMU_FRAME_ID  "imu_frame"
 #define MOTOR1 "joint_lf"
 #define MOTOR2 "joint_rf"
