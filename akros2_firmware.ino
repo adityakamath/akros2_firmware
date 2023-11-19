@@ -316,6 +316,7 @@ bool createEntities()
   // populate fixed message fields - frame IDs for IMU and Odom
   imu_msg.header.frame_id = micro_ros_string_utilities_set(imu_msg.header.frame_id, IMU_FRAME_ID);
   odom_msg.header.frame_id = micro_ros_string_utilities_set(odom_msg.header.frame_id, ODOM_FRAME_ID);
+  odom_msg.child_frame_id = micro_ros_string_utilities_set(odom_msg.child_frame_id, BASE_FRAME_ID);
 
   // populate fixed message fields - size, frame ID and joint names for measured joint state
   joint_state_msg.name.size = joint_state_msg.position.size = joint_state_msg.velocity.size = NR_OF_JOINTS;
