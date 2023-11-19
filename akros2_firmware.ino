@@ -115,12 +115,14 @@ const char * ki_name         = "ki";
 const char * kd_name         = "kd";
 const char * rpm_ratio_name  = "scale";
 const char * ned_to_enu_name = "ned_to_enu"
+const char * led_scale_name  = "brightness"
 
 double kp = K_P;
 double ki = K_I;
 double kd = K_D;
 double rpm_ratio = MAX_RPM_RATIO;
 bool ned_to_enu = NED_TO_ENU;
+int led_scale = NEOPIXEL_BRIGHTNESS;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -285,6 +287,11 @@ bool createEntities()
   RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, ned_to_enu_name, RCLC_PARAMETER_BOOL));
+  RCCHECK(rclc_add_parameter(&param_server, led_scale_name, RCLC_PARAMETER_DOUBLE));
+
+  // add parameter constraints
+  RCCHECK(rclc_add_parameter_constraint_double(&param_server, rpm_ratio_name, 0.0, 1.0, 0.01));
+  RCCHECK(rclc_add_parameter_constraint_int(&param_server, led_scale_name, 0, 255, 1));
 
   // set parameter default values
   RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
@@ -292,6 +299,7 @@ bool createEntities()
   RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
   RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
   RCCHECK(rclc_parameter_set_bool(&param_server, ned_to_enu_name, NED_TO_ENU));
+  RCCHECK(rclc_parameter_set_int(&param_server, led_scale_name, NEOPIXEL_BRIGHTNESS));
 
   // initialize measured joint state message memory
   micro_ros_utilities_create_message_memory(
@@ -389,15 +397,17 @@ bool paramCallback(const Parameter * old_param, const Parameter * new_param, voi
     else if(strcmp(new_param->name.data, kp_name) == 0){ kp = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
-    else if(strcmp(new_param->name.data, ned_to_enu_name) == 0){ ned_to_enu = new_param->value.double_value; }
+    else if(strcmp(new_param->name.data, ned_to_enu_name) == 0){ ned_to_enu = new_param->value.bool_value; }
+    else if(strcmp(new_param->name.data, led_scale_name) == 0){ led_scale = new_param->value.int_value; }
 
-    // update PID constants and max RPM - use existing values for unchanged parameters
+    // update PID constants, max RPM, LED brightness - use existing values for unchanged parameters
     kinematics.setMaxRPM(rpm_ratio);
     motor1_pid.updateConstants(kp, ki, kd);
     motor2_pid.updateConstants(kp, ki, kd);
     motor3_pid.updateConstants(kp, ki, kd);
     motor4_pid.updateConstants(kp, ki, kd);
-
+    FastLED.setBrightness(led_scale);
+    
     return true;
   }
   else return false; // reject loading of new parameters or deletion of existing parameters
