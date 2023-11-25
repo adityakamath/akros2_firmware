@@ -253,7 +253,7 @@ bool createEntities()
   // create parameter server
   rclc_parameter_options_t param_options = {
         .notify_changed_over_dds = true,
-        .max_params = 4,
+        .max_params = 6,
         .allow_undeclared_parameters = false,
         .low_mem_mode = true};
   
