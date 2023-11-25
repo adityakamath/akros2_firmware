@@ -114,8 +114,8 @@ const char * kp_name         = "kp";
 const char * ki_name         = "ki";
 const char * kd_name         = "kd";
 const char * rpm_ratio_name  = "scale";
-const char * ned_to_enu_name = "ned_to_enu"
-const char * led_scale_name  = "brightness"
+const char * ned_to_enu_name = "ned_to_enu";
+const char * led_scale_name  = "brightness";
 
 double kp = K_P;
 double ki = K_I;
@@ -291,7 +291,7 @@ bool createEntities()
 
   // add parameter constraints
   RCCHECK(rclc_add_parameter_constraint_double(&param_server, rpm_ratio_name, 0.0, 1.0, 0.01));
-  RCCHECK(rclc_add_parameter_constraint_int(&param_server, led_scale_name, 0, 255, 1));
+  RCCHECK(rclc_add_parameter_constraint_integer(&param_server, led_scale_name, 0, 255, 1));
 
   // set parameter default values
   RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
@@ -399,7 +399,7 @@ bool paramCallback(const Parameter * old_param, const Parameter * new_param, voi
     else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, ned_to_enu_name) == 0){ ned_to_enu = new_param->value.bool_value; }
-    else if(strcmp(new_param->name.data, led_scale_name) == 0){ led_scale = new_param->value.int_value; }
+    else if(strcmp(new_param->name.data, led_scale_name) == 0){ led_scale = new_param->value.integer_value; }
 
     // update PID constants, max RPM, LED brightness - use existing values for unchanged parameters
     kinematics.setMaxRPM(rpm_ratio);
