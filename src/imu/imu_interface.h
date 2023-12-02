@@ -16,8 +16,6 @@
 #ifndef IMU_INTERFACE
 #define IMU_INTERFACE
 
-#include <micro_ros_utilities/type_utilities.h>
-#include <micro_ros_utilities/string_utilities.h>
 #include <sensor_msgs/msg/imu.h>
 
 extern "C" {

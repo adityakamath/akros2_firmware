@@ -115,14 +115,12 @@ const char * ki_name         = "ki";
 const char * kd_name         = "kd";
 const char * rpm_ratio_name  = "scale";
 const char * ned_to_enu_name = "ned_to_enu";
-const char * led_scale_name  = "brightness";
 
 double kp = K_P;
 double ki = K_I;
 double kd = K_D;
 double rpm_ratio = MAX_RPM_RATIO;
 bool ned_to_enu = NED_TO_ENU;
-int led_scale = NEOPIXEL_BRIGHTNESS;
 
 unsigned long long time_offset = 0;
 unsigned long prev_cmd_time = 0;
@@ -205,7 +203,7 @@ bool createEntities()
           &odom_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(nav_msgs, msg, Odometry),
-          "odom"));
+          "odometry"));
 
   // create imu publisher
   RCSOFTCHECK(rclc_publisher_init_default(
@@ -215,7 +213,7 @@ bool createEntities()
           "imu"));
 
   // create combined measured joint state publisher
-  RCSOFTCHECK(rclc_publisher_init_default(
+  RCSOFTCHECK(rclc_publisher_init_best_effort(
           &joint_state_publisher,
           &node,
           ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, JointState),
@@ -253,7 +251,7 @@ bool createEntities()
   // create parameter server
   rclc_parameter_options_t param_options = {
         .notify_changed_over_dds = true,
-        .max_params = 6,
+        .max_params = 5,
         .allow_undeclared_parameters = false,
         .low_mem_mode = true};
   
@@ -287,11 +285,9 @@ bool createEntities()
   RCCHECK(rclc_add_parameter(&param_server, kd_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, rpm_ratio_name, RCLC_PARAMETER_DOUBLE));
   RCCHECK(rclc_add_parameter(&param_server, ned_to_enu_name, RCLC_PARAMETER_BOOL));
-  RCCHECK(rclc_add_parameter(&param_server, led_scale_name, RCLC_PARAMETER_DOUBLE));
 
   // add parameter constraints
   RCCHECK(rclc_add_parameter_constraint_double(&param_server, rpm_ratio_name, 0.0, 1.0, 0.01));
-  RCCHECK(rclc_add_parameter_constraint_integer(&param_server, led_scale_name, 0, 255, 1));
 
   // set parameter default values
   RCCHECK(rclc_parameter_set_double(&param_server, kp_name, K_P));
@@ -299,7 +295,6 @@ bool createEntities()
   RCCHECK(rclc_parameter_set_double(&param_server, kd_name, K_D));
   RCCHECK(rclc_parameter_set_double(&param_server, rpm_ratio_name, MAX_RPM_RATIO));
   RCCHECK(rclc_parameter_set_bool(&param_server, ned_to_enu_name, NED_TO_ENU));
-  RCCHECK(rclc_parameter_set_int(&param_server, led_scale_name, NEOPIXEL_BRIGHTNESS));
 
   // initialize measured joint state message memory
   micro_ros_utilities_create_message_memory(
@@ -314,6 +309,7 @@ bool createEntities()
     (micro_ros_utilities_memory_conf_t) {});
 
   // populate fixed message fields - size, frame ID and joint names for measured joint state
+  joint_state_msg.header.frame_id = micro_ros_string_utilities_set(joint_state_msg.header.frame_id, BASE_FRAME_ID);
   joint_state_msg.name.size = joint_state_msg.position.size = joint_state_msg.velocity.size = NR_OF_JOINTS;
   joint_state_msg.name.data[0] = micro_ros_string_utilities_set(joint_state_msg.name.data[0], MOTOR1);
   joint_state_msg.name.data[1] = micro_ros_string_utilities_set(joint_state_msg.name.data[1], MOTOR2);
@@ -322,12 +318,13 @@ bool createEntities()
 
   // populate fixed message fields - size, frame ID and joint names for required joint state
   req_state_msg.name.size = req_state_msg.position.size = req_state_msg.velocity.size = NR_OF_JOINTS;
+  req_state_msg.header.frame_id = micro_ros_string_utilities_set(req_state_msg.header.frame_id, BASE_FRAME_ID); 
   req_state_msg.name.data[0] = micro_ros_string_utilities_set(req_state_msg.name.data[0], MOTOR1);
   req_state_msg.name.data[1] = micro_ros_string_utilities_set(req_state_msg.name.data[1], MOTOR2);
   req_state_msg.name.data[2] = micro_ros_string_utilities_set(req_state_msg.name.data[2], MOTOR3);
   req_state_msg.name.data[3] = micro_ros_string_utilities_set(req_state_msg.name.data[3], MOTOR4);
 
-  // set joint states to 0
+  // set controllers and joint states to 0
   stop();
 
   // synchronize time with the agent
@@ -357,7 +354,7 @@ bool destroyEntities()
   rc += rcl_init_options_fini(&init_options);
 
   // stop robot
-  fullStop();
+  stop();
 
   // set Neopixels to Cyan : DISCONNECTED
   setNeopixel(CRGB(0, 255, 255));
@@ -392,7 +389,6 @@ bool paramCallback(const Parameter * old_param, const Parameter * new_param, voi
     else if(strcmp(new_param->name.data, ki_name) == 0){ ki = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, kd_name) == 0){ kd = new_param->value.double_value; }
     else if(strcmp(new_param->name.data, ned_to_enu_name) == 0){ ned_to_enu = new_param->value.bool_value; }
-    else if(strcmp(new_param->name.data, led_scale_name) == 0){ led_scale = new_param->value.integer_value; }
 
     // update PID constants, max RPM, LED brightness - use existing values for unchanged parameters
     kinematics.setMaxRPM(rpm_ratio);
@@ -400,7 +396,6 @@ bool paramCallback(const Parameter * old_param, const Parameter * new_param, voi
     motor2_pid.updateConstants(kp, ki, kd);
     motor3_pid.updateConstants(kp, ki, kd);
     motor4_pid.updateConstants(kp, ki, kd);
-    FastLED.setBrightness(led_scale);
     
     return true;
   }
@@ -413,7 +408,7 @@ void updateMode()
   {
     // set Neopixels to Cyan : STOP
     setNeopixel(CRGB(255, 0, 0));
-    fullStop();
+    stop();
   }
   else mode_msg.auto_t ? setNeopixel(CRGB(0, 55, 255)) : setNeopixel(CRGB(0, 255, 55)); // set Neopixels to Blue : AUTO, Green : TELEOP
   FastLED.show();
@@ -421,6 +416,12 @@ void updateMode()
 
 void moveBase()
 {
+  // get measured RPM for each motor
+  joint_rpm[0] = motor1_encoder.getRPM();
+  joint_rpm[1] = motor2_encoder.getRPM();
+  joint_rpm[2] = motor3_encoder.getRPM();
+  joint_rpm[3] = motor4_encoder.getRPM();
+  
   // check if relevant twist fields are not all zero
   if(twist_msg.linear.x != 0 || twist_msg.linear.y != 0 || twist_msg.angular.z != 0)
   {
@@ -437,12 +438,6 @@ void moveBase()
     req_rpm[1] = required_rpm.motor2;
     req_rpm[2] = required_rpm.motor3;
     req_rpm[3] = required_rpm.motor4;
-    
-    // get measured RPM for each motor
-    joint_rpm[0] = motor1_encoder.getRPM();
-    joint_rpm[1] = motor2_encoder.getRPM();
-    joint_rpm[2] = motor3_encoder.getRPM();
-    joint_rpm[3] = motor4_encoder.getRPM();
 
     // compute expected PWM for each motor
     float pwm_arr[NR_OF_JOINTS];
@@ -466,7 +461,7 @@ void moveBase()
     motor3_controller.spin(constrain(smooth_pwm[2], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
     motor4_controller.spin(constrain(smooth_pwm[3], PWM_MIN*MAX_PWM_RATIO, PWM_MAX*MAX_PWM_RATIO));
   }
-  else fullStop();
+  else stop();
 
   // get current velocities of the robot
   Kinematics::velocities current_vel = kinematics.getVelocities(
@@ -503,13 +498,11 @@ void publishData()
   odom_msg.header.stamp.sec = time_stamp.tv_sec;
   odom_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 
-  // populate measured joint state header
-  joint_state_msg.header.frame_id = micro_ros_string_utilities_set(joint_state_msg.header.frame_id, BASE_FRAME_ID); 
+  // populate measured joint state timestamp
   joint_state_msg.header.stamp.sec = time_stamp.tv_sec;
   joint_state_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 
-  // populate required joint state header
-  req_state_msg.header.frame_id = micro_ros_string_utilities_set(req_state_msg.header.frame_id, BASE_FRAME_ID);
+  // populate required joint state timestamp
   req_state_msg.header.stamp.sec = time_stamp.tv_sec;
   req_state_msg.header.stamp.nanosec = time_stamp.tv_nsec;
 
@@ -536,16 +529,6 @@ void publishData()
 
 void stop()
 {
-  // set all (required and measured) joint states to 0
-  for(int i=0; i<NR_OF_JOINTS; i++)
-  {
-    joint_rpm[i] = 0.0;
-    req_rpm[i] = 0.0;
-  }
-}
-
-void fullStop()
-{
   // set twist to 0
   twist_msg = {0.0};
 
@@ -561,8 +544,11 @@ void fullStop()
   motor3_pid.resetAll();
   motor4_pid.resetAll();
 
-  // set all joint states to 0
-  stop();
+  // set required joint states to 0
+  for(int i=0; i<NR_OF_JOINTS; i++)
+  {
+    req_rpm[i] = 0.0;
+  }
 }
 
 void calculateOffset()

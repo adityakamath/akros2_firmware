@@ -20,9 +20,9 @@
 #define ROS_DOMAIN_ID 0
 #define NODE "base_node"
 #define NAMESPACE ""
-#define BASE_FRAME_ID "base_link"
-#define ODOM_FRAME_ID "enc_odom"
-#define IMU_FRAME_ID  "imu_frame"
+#define BASE_FRAME_ID "base_footprint"
+#define ODOM_FRAME_ID "odom"
+#define IMU_FRAME_ID  "imu_link"
 #define MOTOR1 "joint_lf"
 #define MOTOR2 "joint_rf"
 #define MOTOR3 "joint_lb"
@@ -51,7 +51,7 @@
 
 //IMU:
 #define USE_MPU9250_IMU // USE_MPU9250_IMU, USE_GY85_IMU, USE_MPU6050_IMU, USE_MPU9150_IMU
-#define NED_TO_ENU true
+#define NED_TO_ENU false
 
 //DRIVE:
 #define NR_OF_JOINTS 4
