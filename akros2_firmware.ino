@@ -406,7 +406,7 @@ void updateMode()
 {
   if (mode_msg.estop)
   {
-    // set Neopixels to Cyan : STOP
+    // set Neopixels to Red : STOP
     setNeopixel(CRGB(255, 0, 0));
     stop();
   }
